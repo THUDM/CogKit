@@ -1,0 +1,88 @@
+name: Copy Docs and Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - webdoc
+    paths:
+      - 'docs/**'
+
+jobs:
+  copy-and-build:
+    if: github.event.pull_request.merged == true
+    name: Copy Docs and Build Docusaurus
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-repo
+          fetch-depth: 1
+
+      - name: Checkout webdoc branch
+        uses: actions/checkout@v4
+        with:
+          ref: webdoc
+          path: webdoc-repo
+          fetch-depth: 1
+
+      - name: Create directory if not exists
+        run: mkdir -p webdoc-repo/webdoc/docs
+
+      - name: Copy docs from main to webdoc
+        run: |
+          rm -rf webdoc-repo/webdoc/docs/*
+          cp -r main-repo/docs/* webdoc-repo/webdoc/docs/
+
+      - name: Commit and push changes to webdoc
+        run: |
+          cd webdoc-repo
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add webdoc/docs/
+          git commit -m "Sync docs from main branch" || echo "No changes to commit"
+          git push origin webdoc
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: yarn
+          cache-dependency-path: webdoc-repo/yarn.lock
+
+      - name: Install dependencies
+        run: |
+          cd webdoc-repo
+          yarn install --frozen-lockfile
+
+      - name: Build website
+        run: |
+          cd webdoc-repo
+          yarn build
+
+      - name: Upload Build Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: webdoc-repo/build
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: copy-and-build
+
+    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+    permissions:
+      pages: write # to deploy to Pages
+      id-token: write # to verify the deployment originates from an appropriate source
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

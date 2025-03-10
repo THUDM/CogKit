@@ -1,0 +1,53 @@
+name: Test Docs Copy and Build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+    # Review gh actions docs if you want to further define triggers, paths, etc
+    # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#on
+
+jobs:
+  test-copy-and-build:
+    name: Test Docs Copy and Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          path: pr-repo
+          fetch-depth: 1
+
+      - name: Checkout webdoc branch
+        uses: actions/checkout@v4
+        with:
+          ref: webdoc
+          path: webdoc-repo
+          fetch-depth: 1
+
+      - name: Create directory if not exists
+        run: mkdir -p webdoc-repo/webdoc/docs
+
+      - name: Copy docs from PR to webdoc
+        run: |
+          rm -rf webdoc-repo/webdoc/docs/*
+          cp -r pr-repo/docs/* webdoc-repo/webdoc/docs/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: yarn
+          cache-dependency-path: webdoc-repo/yarn.lock
+
+      - name: Install dependencies
+        run: |
+          cd webdoc-repo
+          yarn install --frozen-lockfile
+
+      - name: Test build website
+        run: |
+          cd webdoc-repo
+          yarn build
