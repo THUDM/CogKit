@@ -10,7 +10,6 @@ on:
 
 jobs:
   copy-and-build:
-    if: github.event.pull_request.merged == true
     name: Copy Docs and Build Docusaurus
     runs-on: ubuntu-latest
     steps:
