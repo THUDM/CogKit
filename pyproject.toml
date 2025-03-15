@@ -9,10 +9,9 @@ dynamic = ['version']
 description = ''
 readme = 'README.md'
 requires-python = '>=3.10'
-license = 'MIT'
+license = 'Apache2.0'
 keywords = []
-# FIXME: authors
-authors = [{ name = 'Chenhui Zhang', email = 'zhang.chenhui@outlook.com' }]
+authors = [{ name = 'ZhipuAI', email = 'opensource@zhipuai.cn' }]
 classifiers = [
   'Development Status :: 4 - Beta',
   'Programming Language :: Python :: 3.10',
@@ -27,17 +26,13 @@ dependencies = [
   "click~=8.1",
   "datasets~=3.2",
   "deepspeed~=0.16.3",
-
-  # FIXME: change diffusers source later
-  # "diffusers @ git+https://github.com/zRzRzRzRzRzRzR/diffusers.git@cogview4_control",
-
+  "diffusers@git+https://github.com/huggingface/diffusers.git",
   "imageio-ffmpeg~=0.6.0",
   "imageio~=2.37",
   "peft~=0.14.0",
   "pydantic~=2.10",
   "sentencepiece~=0.2.0",
-  # "setuptools>=75.8.0",
-  "transformers~=4.48",
+  "transformers~=4.49",
   "wandb~=0.19.6",
 ]
 
@@ -46,15 +41,7 @@ torch = ["numpy", "torch", "torchvision"]
 video = ["decord~=0.6.0", "opencv-python-headless~=4.11"]
 
 [project.scripts]
-# FIXME: change name to cogkit
 cogkit = "cogkit.cli:cli"
-
-[project.urls]
-# TODO: adds project urls
-# Documentation = 'https://github.com/Chenhui Zhang/cogkit#readme'
-# Issues = 'https://github.com/Chenhui Zhang/cogkit/issues'
-# Source = 'https://github.com/Chenhui Zhang/cogkit'
-
 
 [tool.hatch.version]
 source = 'vcs'

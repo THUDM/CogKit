@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - webdoc
     paths:
       - 'docs/**'
 
@@ -48,23 +47,23 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: yarn
-          cache-dependency-path: webdoc-repo/yarn.lock
+          cache: npm
+          cache-dependency-path: webdoc-repo/webdoc/package-lock.json
 
       - name: Install dependencies
         run: |
-          cd webdoc-repo
-          yarn install --frozen-lockfile
+          cd webdoc-repo/webdoc
+          npm install
 
       - name: Build website
         run: |
-          cd webdoc-repo
-          yarn build
+          cd webdoc-repo/webdoc
+          npm run build
 
       - name: Upload Build Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: webdoc-repo/build
+          path: webdoc-repo/webdoc/build
 
   deploy:
     name: Deploy to GitHub Pages
