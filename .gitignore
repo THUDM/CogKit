@@ -255,6 +255,4 @@ tmp/
 **/train_result
 
 **/uv.lock
-
-webdoc/
 **/wandb/
