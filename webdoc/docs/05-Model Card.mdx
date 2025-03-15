@@ -1,0 +1,97 @@
+---
+---
+
+# Model Card
+
+Here is a detailed description of how CogKit supports models.
+
+All training requirements must be strictly followed as specified in the table below, including resolution, number of frames, prompt token limit, and video length requirements.
+
+## CogVideo
+
+<table style={{ textAlign: "center" }}>
+  <tr>
+    <th style={{ textAlign: "center" }}>Model Name</th>
+    <th style={{ textAlign: "center" }}>CogVideoX1.5-5B</th>
+    <th style={{ textAlign: "center" }}>CogVideoX1.5-5B-I2V</th>
+    <th style={{ textAlign: "center" }}>CogVideoX-2B</th>
+    <th style={{ textAlign: "center" }}>CogVideoX-5B</th>
+    <th style={{ textAlign: "center" }}>CogVideoX-5B-I2V</th>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Release Date</td>
+    <td style={{ textAlign: "center" }}>November 8, 2024</td>
+    <td style={{ textAlign: "center" }}>November 8, 2024</td>
+    <td style={{ textAlign: "center" }}>August 6, 2024</td>
+    <td style={{ textAlign: "center" }}>August 27, 2024</td>
+    <td style={{ textAlign: "center" }}>September 19, 2024</td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Video Resolution</td>
+    <td colspan="1" style={{ textAlign: "center" }}>1360 * 768</td>
+    <td colspan="1" style={{ textAlign: "center" }}>Min(W, H) &#61 768 <br/> 768 ≤ Max(W, H) ≤ 1360 <br/> Max(W, H) % 16 &#61 0</td>
+    <td colspan="3" style={{ textAlign: "center" }}>720 * 480</td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Number of Frames</td>
+    <td colspan="2" style={{ textAlign: "center" }}>Should be <b>16N + 1</b> where N ≤ 10 (default 81)</td>
+    <td colspan="3" style={{ textAlign: "center" }}>Should be <b>8N + 1</b> where N ≤ 6 (default 49)</td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Prompt Language</td>
+    <td colspan="5" style={{ textAlign: "center" }}>English</td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Prompt Token Limit</td>
+    <td colspan="2" style={{ textAlign: "center" }}>224 Tokens</td>
+    <td colspan="3" style={{ textAlign: "center" }}>226 Tokens</td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Video Length</td>
+    <td colspan="2" style={{ textAlign: "center" }}>5 seconds or 10 seconds</td>
+    <td colspan="3" style={{ textAlign: "center" }}>6 seconds</td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Frame Rate</td>
+    <td colspan="2" style={{ textAlign: "center" }}>16 frames / second </td>
+    <td colspan="3" style={{ textAlign: "center" }}>8 frames / second </td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Download Link (Diffusers)</td>
+    <td style={{ textAlign: "center" }}><a href="https://huggingface.co/THUDM/CogVideoX1.5-5B">🤗 HuggingFace</a><br/><a href="https://modelscope.cn/models/ZhipuAI/CogVideoX1.5-5B">🤖 ModelScope</a><br/><a href="https://wisemodel.cn/models/ZhipuAI/CogVideoX1.5-5B">🟣 WiseModel</a></td>
+    <td style={{ textAlign: "center" }}><a href="https://huggingface.co/THUDM/CogVideoX1.5-5B-I2V">🤗 HuggingFace</a><br/><a href="https://modelscope.cn/models/ZhipuAI/CogVideoX1.5-5B-I2V">🤖 ModelScope</a><br/><a href="https://wisemodel.cn/models/ZhipuAI/CogVideoX1.5-5B-I2V">🟣 WiseModel</a></td>
+    <td style={{ textAlign: "center" }}><a href="https://huggingface.co/THUDM/CogVideoX-2b">🤗 HuggingFace</a><br/><a href="https://modelscope.cn/models/ZhipuAI/CogVideoX-2b">🤖 ModelScope</a><br/><a href="https://wisemodel.cn/models/ZhipuAI/CogVideoX-2b">🟣 WiseModel</a></td>
+    <td style={{ textAlign: "center" }}><a href="https://huggingface.co/THUDM/CogVideoX-5b">🤗 HuggingFace</a><br/><a href="https://modelscope.cn/models/ZhipuAI/CogVideoX-5b">🤖 ModelScope</a><br/><a href="https://wisemodel.cn/models/ZhipuAI/CogVideoX-5b">🟣 WiseModel</a></td>
+    <td style={{ textAlign: "center" }}><a href="https://huggingface.co/THUDM/CogVideoX-5b-I2V">🤗 HuggingFace</a><br/><a href="https://modelscope.cn/models/ZhipuAI/CogVideoX-5b-I2V">🤖 ModelScope</a><br/><a href="https://wisemodel.cn/models/ZhipuAI/CogVideoX-5b-I2V">🟣 WiseModel</a></td>
+  </tr>
+</table>
+
+
+## CogView
+
+<table style={{ textAlign: "center" }}>
+  <tr>
+    <th style={{ textAlign: "center" }}>Model Name</th>
+    <th style={{ textAlign: "center" }}>CogView4-6B (Latest)</th>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Release Date</td>
+    <td style={{ textAlign: "center" }}>March 4, 2025</td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Resolution</td>
+    <td style={{ textAlign: "center" }}>512 ≤ (W, H) ≤ 2048 <br/> H * W ≤ 2^{21} <br/> Max(W, H) % 32 &#61 0 </td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Prompt Language</td>
+    <td style={{ textAlign: "center" }}>English，简体中文</td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Prompt Token Limit</td>
+    <td style={{ textAlign: "center" }}>1024 Tokens (GLM-4-9B)</td>
+  </tr>
+  <tr>
+    <td style={{ textAlign: "center" }}>Download Link (Diffusers)</td>
+    <td style={{ textAlign: "center" }}><a href="https://huggingface.co/THUDM/CogView4-6B">🤗 HuggingFace</a><br/><a href="https://modelscope.cn/models/ZhipuAI/CogView4-6B">🤖 ModelScope</a><br/><a href="https://wisemodel.cn/models/ZhipuAI/CogView4-6B">🟣 WiseModel</a></td>
+  </tr>
+</table>
