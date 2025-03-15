@@ -16,8 +16,6 @@ cogkit [OPTIONS] COMMAND [ARGS]...
 
 Available commands:
 - `inference`: Generate images or videos using AI models
-<!-- FIXME: remove this? -->
-- `finetune`: Fine-tune models with custom data
 - `launch`: Launch a web UI for interactive use
 
 Global options:
@@ -33,8 +31,6 @@ cogkit inference [OPTIONS] PROMPT MODEL_ID_OR_PATH
 
 ### Examples
 
-<!-- FIXME: Add example for i2v -->
-
 ```bash
 # Generate an image from text
 cogkit inference "a beautiful sunset over mountains" "THUDM/CogView4-6B"
@@ -44,7 +40,6 @@ cogkit inference "a cat playing with a ball" "THUDM/CogVideoX1.5-5B"
 
 ```
 
-<!-- FIXME: remove this? -->
 ## Fine-tuning Command
 
 The `finetune` command allows you to fine-tune models with your own data:

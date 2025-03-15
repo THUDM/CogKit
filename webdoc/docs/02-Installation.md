@@ -7,7 +7,7 @@ CogKit can be installed using pip. We recommend using a virtual environment to a
 
 ## Requirements
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - CUDA-compatible GPU (for optimal performance)
 - At least 8GB of GPU memory for inference, 16GB+ recommended for fine-tuning
 
@@ -21,7 +21,7 @@ python -m venv cogkit-env
 source cogkit-env/bin/activate
 
 # Or using conda
-conda create -n cogkit-env python=3.8
+conda create -n cogkit-env python=3.10
 conda activate cogkit-env
 ```
 
@@ -30,13 +30,10 @@ conda activate cogkit-env
 Please refer to the [PyTorch installation guide](https://pytorch.org/get-started/locally/) for instructions on installing PyTorch according to your system.
 
 ### Install Cogkit
-<!-- FIXME: Install via pip install cogkit or via clone&local install? -->
 
 1. Install Cogkit:
-
-   <!-- TODO: add github link -->
    ```bash
-   pip install cogkit@git+https:
+   pip install cogkit@git+https://github.com/thudm/cogkit.git
    ```
 
 2. Optional: for video tasks (e.g. text-to-video), install additional dependencies:
@@ -51,26 +48,20 @@ Please refer to the [PyTorch installation guide](https://pytorch.org/get-started
 You can verify that cogkit is installed correctly by running:
 
 ```bash
-python -c "import cogkit"
+cogkit --help
 ```
 
-<!-- TODO: add in roadmap -->
-## [Optional] Install via docker
+and will get:
 
-If you have any issues with the installation, you can install Cogkit via Docker. We provide a Docker image that includes all dependencies. You can pull the image from Docker Hub:
+```text
+Usage: cogkit [OPTIONS] COMMAND [ARGS]...
 
-<!-- FIXME: add link to the docker image -->
-```bash
-docker pull ghcr.io/cogkit/cogkit:latest
+Options:
+  -v, --verbose  Verbosity level (from 0 to 2)  [default: 0; 0<=x<=2]
+  --help         Show this message and exit.
+
+Commands:
+  finetune
+  inference  Generates a video based on the given prompt and saves it to...
+  launch
 ```
-
-To run the container, use the following command:
-
-<!-- FIXME: add link to the docker image -->
-```bash
-docker run -it ghcr.io/cogkit/cogkit:latest
-```
-
-## Troubleshooting
-
-For more detailed troubleshooting, please refer to our GitHub issues page.

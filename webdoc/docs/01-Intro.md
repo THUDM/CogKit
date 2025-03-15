@@ -4,7 +4,7 @@ slug: /
 
 # Introduction
 
-CogKit is a powerful framework for working with ZhipuAI Cog Series models, focusing on multimodal generation and fine-tuning capabilities. 
+CogKit is a powerful framework for working with ZhipuAI Cog Series models, focusing on multimodal generation and fine-tuning capabilities.
 It provides a unified interface for various AI tasks including text-to-image, text-to-video, and image-to-video generation.
 
 ## Key Features
