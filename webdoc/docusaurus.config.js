@@ -9,8 +9,8 @@ import {themes as prismThemes} from 'prism-react-renderer';
 const config = {
   title: 'CogKit',
   tagline: 'A toolkit for cognitive AI by ZhipuAI',
-  url: 'https://github.com/THUDM/CogKit',
-  baseUrl: '/',
+   url: 'https://zhipuai.github.io',
+  baseUrl: '/CogKit/',
   organizationName: 'ZhipuAI',
   projectName: 'CogKit',
 
