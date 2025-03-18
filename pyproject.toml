@@ -17,8 +17,9 @@ dependencies = [
 ]
 requires-python = ">=3.10"
 readme = "README.md"
+
 # FIXME: see guides in PEP 639
-license = "Apache2.0"
+License-File = "LICENSE"
 
 [project.optional-dependencies]
 torch = ["numpy", "torch", "torchvision"]
