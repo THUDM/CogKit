@@ -24,15 +24,15 @@ def _validate_dimensions(min_scale: int,
                          power: int | None = None,
                          ) -> bool:
     if not (min_scale <= width <= max_scale and min_scale <= height <= max_scale):
-        _logger.info("width or height out of range: %s <= height, width <= %s", min_scale, max_scale)
+        _logger.warning("width or height out of range: %s <= height, width <= %s", min_scale, max_scale)
         return False
     if power:
         if width * height > 2**power:
-            _logger.info("width * height exceeds the limit: width * height <= 2^%s", power)
+            _logger.warning("width * height exceeds the limit: width * height <= 2^%s", power)
             return False
     
     if width % mod != 0 or height % mod != 0:
-        _logger.info("width or height is not a multiple of %s: height, width \mod %s = 0", mod, mod)
+        _logger.warning("width or height is not a multiple of %s: height, width \mod %s = 0", mod, mod)
         return False
     
     return True
@@ -92,7 +92,23 @@ def _guess_cogvideox_resolution(
             return default_height, default_width
     return height, width
 
-
+def guess_frames(
+    lora_model_id_or_path: str | None = None,
+    num_frames: int = 1,
+) -> int:
+    if "1.5" in lora_model_id_or_path:
+        if (num_frames - 1) % 16 == 0:
+            return num_frames
+        else:
+            _logger.warning("CogVideoX1.5's num_frames - 1 must be a multiple of 16")
+            return 81
+    else:
+        if (num_frames - 1) % 8 == 0:
+            return num_frames
+        else:
+            _logger.warning("CogVideoX's num_frames - 1 must be a multiple of 8")
+            return 49
+        
 def guess_resolution(
     pipeline: TPipeline,
     height: int | None = None,

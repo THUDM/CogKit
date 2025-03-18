@@ -125,7 +125,6 @@ def inference(
     if task in (
         GenerationMode.TextToVideo,
         GenerationMode.ImageToVideo,
-        GenerationMode.VideoToVideo,
     ):
         generate_video(
             task,

@@ -12,7 +12,7 @@ from diffusers.pipelines.cogvideo.pipeline_output import CogVideoXPipelineOutput
 from diffusers.utils import export_to_video
 from PIL import Image
 
-from cogkit.generation.util import before_generation, guess_resolution
+from cogkit.generation.util import before_generation, guess_frames, guess_resolution
 from cogkit.logging import get_logger
 from cogkit.types import GenerationMode
 from cogkit.utils import (
@@ -68,7 +68,7 @@ def generate_video(
     if lora_model_id_or_path is not None:
         load_lora_checkpoint(lora_model_id_or_path, pipeline, lora_rank)
     height, width = guess_resolution(pipeline, height, width)
-
+    num_frames = guess_frames(lora_model_id_or_path, num_frames)
     before_generation(pipeline)
 
     pipeline_fn = partial(
@@ -87,9 +87,6 @@ def generate_video(
         pipeline_out = pipeline_fn()
     elif task == GenerationMode.ImageToVideo:
         pipeline_out = pipeline_fn(image=Image.open(image_file))
-    elif task == GenerationMode.VideoToVideo:
-        # FIXME: reads video file
-        pipeline_out = pipeline_fn(video=video_file)
     else:
         err_msg = f"Unknown generation mode: {task.value}"
         raise ValueError(err_msg)
