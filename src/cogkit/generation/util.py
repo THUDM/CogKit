@@ -9,9 +9,33 @@ from diffusers import (
     CogView4Pipeline,
 )
 
+from cogkit.logging import get_logger
+
+_logger = get_logger(__name__)
+
 TVideoPipeline = CogVideoXPipeline | CogVideoXImageToVideoPipeline | CogVideoXVideoToVideoPipeline
 TPipeline = CogView4Pipeline | TVideoPipeline
 
+def _validate_dimensions(min_scale: int,
+                         max_scale: int,
+                         mod: int,
+                         width: int,
+                         height: int,
+                         power: int | None = None,
+                         ) -> bool:
+    if not (min_scale <= width <= max_scale and min_scale <= height <= max_scale):
+        _logger.info("width or height out of range: 512 <= height, width <= 2048")
+        return False
+    if power:
+        if width * height > 2**power:
+            _logger.info("width * height exceeds the limit: width * height <= 2^21")
+            return False
+    
+    if width % mod != 0 or height % mod != 0:
+        _logger.info("width or height is not a multiple of 32: height, width \mod 32 = 0")
+        return False
+    
+    return True
 
 def _guess_cogview_resolution(
     pipeline: CogView4Pipeline, height: int | None = None, width: int | None = None
@@ -26,7 +50,18 @@ def _guess_cogview_resolution(
 
     if width is None:
         width = int(height * default_width / default_height)
+
     # FIXME: checks if `(height, width)` is reasonable. If not, warn users and return the default/recommend resolution when required.
+    if width and height:
+        if not _validate_dimensions(
+            min_scale=512,
+            max_scale=2048,
+            mod=32,
+            width=width,
+            height=height,
+            power=21,
+        ):
+            return default_height, default_width
     return height, width
 
 
@@ -46,6 +81,15 @@ def _guess_cogvideox_resolution(
         width = int(height * default_width / default_height)
 
     # FIXME: checks if `(height, width)` is reasonable. If not, warn users and return the default/recommend resolution when required.
+    if width and height:
+        if not _validate_dimensions(
+                min_scale=768,
+                max_scale=1360,
+                mod=16,
+                height=height,
+                width=width,
+            ):
+            return default_height, default_width
     return height, width
 
 
