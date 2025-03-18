@@ -24,15 +24,15 @@ def _validate_dimensions(min_scale: int,
                          power: int | None = None,
                          ) -> bool:
     if not (min_scale <= width <= max_scale and min_scale <= height <= max_scale):
-        _logger.info("width or height out of range: 512 <= height, width <= 2048")
+        _logger.info("width or height out of range: %s <= height, width <= %s", min_scale, max_scale)
         return False
     if power:
         if width * height > 2**power:
-            _logger.info("width * height exceeds the limit: width * height <= 2^21")
+            _logger.info("width * height exceeds the limit: width * height <= 2^%s", power)
             return False
     
     if width % mod != 0 or height % mod != 0:
-        _logger.info("width or height is not a multiple of 32: height, width \mod 32 = 0")
+        _logger.info("width or height is not a multiple of %s: height, width \mod %s = 0", mod, mod)
         return False
     
     return True
