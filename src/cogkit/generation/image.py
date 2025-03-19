@@ -25,7 +25,6 @@ def generate_image(
     height: int | None = None,
     width: int | None = None,
     # * params for the generation process
-    num_images_per_prompt: int = 1,
     num_inference_steps: int = 50,
     guidance_scale: float = 3.5,
     seed: int | None = 42,
@@ -38,6 +37,8 @@ def generate_image(
 
     height, width = guess_resolution(pipeline, height, width)
 
+    _logger.info(f"Generation config: height {height}, width {width}.")
+
     before_generation(pipeline)
 
     batch_image = pipeline(
@@ -46,7 +47,7 @@ def generate_image(
         width=width,
         num_inference_steps=num_inference_steps,
         guidance_scale=guidance_scale,
-        num_images_per_prompt=num_images_per_prompt,
+        num_images_per_prompt=1,
         generator=rand_generator(seed),
     ).images
 

@@ -32,6 +32,10 @@ video = generate_video(
 )
 video.save("cat_video.mp4")
 ```
+<!-- TODO: add examples for i2v -->
+
+<!-- FIXME: correct url -->
+See function signatures in [generation.py](...) for more details.
 
 ## API Server
 

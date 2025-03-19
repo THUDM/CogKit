@@ -17,9 +17,7 @@ cogkit [OPTIONS] COMMAND [ARGS]...
 Available commands:
 
 - `inference`: Generate images or videos using AI models
-<!-- FIXME: remove this? -->
-- `finetune`: Fine-tune models with custom data
-- `launch`: Launch a web UI for interactive use
+- `launch`: Launch a API server
 
 Global options:
 
@@ -27,64 +25,35 @@ Global options:
 
 ## Inference Command
 
-The `inference` command allows you to generate images and videos:
+The `inference` command allows you to generate images or videos:
 
-```bash
-cogkit inference [OPTIONS] PROMPT MODEL_ID_OR_PATH
-```
 
-### Examples
-
-<!-- FIXME: Add example for i2v -->
-
-<!-- FIXME: remove this? -->
 ```bash
 # Generate an image from text
 cogkit inference "a beautiful sunset over mountains" "THUDM/CogView4-6B"
 
 # Generate a video from text
 cogkit inference "a cat playing with a ball" "THUDM/CogVideoX1.5-5B"
-
 ```
 
-## Fine-tuning Command
+<!-- TODO: Add example for i2v -->
 
-The `finetune` command allows you to fine-tune models with your own data:
-
-```bash
-cogkit finetune [OPTIONS]
-```
-
-> Note: The fine-tuning command is currently under development. Please check back for updates.
+:::tip
+See `cogkit inference --help` for more information.
+:::
 
 <!-- TODO: add docs for launch server -->
 ## Launch Command
 
-The `launch` command starts a web UI for interactive use:
+The `launch` command will starts a API server:
 
+<!-- FIXME: Add examples -->
 ```bash
-cogkit launch [OPTIONS]
+...
 ```
 
-This launches a web interface where you can:
+Please refer to [API](./02-API.md#api-server) for details on how to interact with the API server using client interfaces.
 
-- Generate images and videos interactively
-- Upload images for image-to-video generation
-- Adjust generation parameters
-- View and download results
-
-### Options
-
-| Option | Description |
-|--------|-------------|
-| `--host TEXT` | Host to bind the server to (default: 127.0.0.1) |
-| `--port INTEGER` | Port to bind the server to (default: 7860) |
-| `--share` | Create a public URL |
-
-### Example
-
-```bash
-# Launch the web UI on the default port
-cogkit launch
-
-```
+:::tip
+See `cogkit launch --help` for more information.
+:::

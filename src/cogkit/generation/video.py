@@ -50,16 +50,13 @@ def generate_video(
     # * params for generated videos
     height: int | None = None,
     width: int | None = None,
-    num_frames: int = 1,
-    fps: int = 16,
+    num_frames: int | None = None,
+    fps: int | None = None,
     # * params for the generation process
-    num_videos_per_prompt: int = 1,
     num_inference_steps: int = 50,
     guidance_scale: float = 6.0,
     seed: int | None = 42,
 ) -> None:
-    # FIXME: check the value of num_frames as documented in the model card
-    # FIXME: check if this line can correctly load t2v pipeline?
     pipeline = DiffusionPipeline.from_pretrained(model_id_or_path, torch_dtype=dtype)
 
     if transformer_path is not None:
@@ -67,8 +64,14 @@ def generate_video(
         pipeline.transformer = pipeline.transformer.from_pretrained(transformer_path)
     if lora_model_id_or_path is not None:
         load_lora_checkpoint(lora_model_id_or_path, pipeline, lora_rank)
+
     height, width = guess_resolution(pipeline, height, width)
-    num_frames = guess_frames(lora_model_id_or_path, num_frames)
+    num_frames, fps = guess_frames(pipeline, num_frames)
+
+    _logger.info(
+        f"Generation config: height {height}, width {width}, num_frames {num_frames}, fps {fps}."
+    )
+
     before_generation(pipeline)
 
     pipeline_fn = partial(
@@ -76,7 +79,7 @@ def generate_video(
         height=height,
         width=width,
         prompt=prompt,
-        num_videos_per_prompt=num_videos_per_prompt,
+        num_videos_per_prompt=1,
         num_inference_steps=num_inference_steps,
         num_frames=num_frames,
         use_dynamic_cfg=True,

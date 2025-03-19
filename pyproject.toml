@@ -1,8 +1,12 @@
 [project]
-name = "cogkit"
-dynamic = ["version"]
-# TODO: adds a short description, will be displayed on the github page
-description = "CogView/CogVideo"
+name = 'cogkit'
+dynamic = ['version']
+description = ''
+readme = 'README.md'
+requires-python = '>=3.10'
+license = 'Apache2.0'
+license-files = ["LICENSE"]
+keywords = []
 authors = [{ name = 'ZhipuAI', email = 'opensource@zhipuai.cn' }]
 # TODO: adds maintainers
 # maintainers = []
@@ -12,20 +16,25 @@ dependencies = [
   "diffusers @ git+https://github.com/huggingface/diffusers.git",
   "imageio-ffmpeg~=0.6.0",
   "imageio~=2.37",
+  "pydantic~=2.10",
   "sentencepiece==0.2.0",
   "transformers~=4.49",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
 
-# FIXME: see guides in PEP 639
-License-File = "LICENSE"
+license-file = ["LICENSE"]
 
 [project.optional-dependencies]
 torch = ["numpy", "torch", "torchvision"]
 
 # TODO: adds project urls
 # [project.urls]
+api = [
+    "fastapi[standard]~=0.115.11",
+    "pydantic-settings~=2.8",
+    "python-dotenv~=1.0",
+]
 
 
 [project.scripts]

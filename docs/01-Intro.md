@@ -6,12 +6,6 @@ slug: /
 
 `cogkit` is a powerful framework for working with cognitive AI models, focusing on multi-modal generation and fine-tuning capabilities. It provides a unified interface for various AI tasks including text-to-image, text-to-video, and image-to-video generation.
 
-<!-- TODO: key features? -->
-## Key Features
-
-- **Command-line Interface**: Easy-to-use CLI and Python API for both inference and fine-tuning
-- **Fine-tuning Support**: With LoRA or full model fine-tuning support to customize models with your own data
-
 ## Supported Models
 
 Please refer to the [Model Card](./05-Model%20Card.mdx) for more details.

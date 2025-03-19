@@ -89,7 +89,7 @@ def guess_generation_mode(
         err_msg = f"Failed to parse the pipeline configuration (pipeline_cls = {pl_cls_name})."
         raise ValueError(err_msg)
 
-    if not pl_cls_name not in _SUPPORTED_PIPELINE:
+    if pl_cls_name not in _SUPPORTED_PIPELINE:
         err_msg = f"The pipeline '{pl_cls_name}' is not supported."
         raise ValueError(err_msg)
     if generation_mode is not None:

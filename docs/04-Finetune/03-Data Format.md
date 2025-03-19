@@ -41,6 +41,5 @@
 
 ## Notes
 
-- Training sets (`train/`) are used for model training
-- Test sets (`test/`) are used for evaluating model performance
-- Each dataset will generate a `.cache/` directory during training, used to store preprocessed cache data. If the dataset changes, you need to **manually delete this directory** and retrain.
+- Training sets (`train/`) are used for model training, test sets (`test/`) are used for evaluating model performance
+- Each dataset will generate a `.cache/` directory during training, used to store preprocessed data. If the dataset changes, you need to **manually delete this directory** and retrain.
