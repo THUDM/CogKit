@@ -14,8 +14,10 @@ from PIL import Image
 from cogkit.api.dependencies import get_image_generation_service
 from cogkit.api.models.images import ImageGenerationParams, ImageInResponse, ImagesResponse
 from cogkit.api.services import ImageGenerationService
+from cogkit.api.settings import APISettings
 
 router = APIRouter()
+settings = APISettings()
 
 
 def np_to_base64(image_array: np.ndarray) -> str:
@@ -33,7 +35,7 @@ def generations(
     if not image_generation.is_valid_model(params.model):
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
-            detail=f"The model `{params.model}` does not exist.",
+            detail=f"The model `{params.model}` does not exist. Supported models: {settings._supported_models}",
         )
     # TODO: add exception handling
     image_lst = image_generation.generate(
