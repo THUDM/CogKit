@@ -4,9 +4,10 @@
 import base64
 import time
 from typing import Annotated
+from http import HTTPStatus
 
 import numpy as np
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from cogkit.api.dependencies import get_image_generation_service
 from cogkit.api.models.images import ImageGenerationParams, ImageInResponse, ImagesResponse
@@ -26,8 +27,13 @@ def generations(
     image_generation: Annotated[ImageGenerationService, Depends(get_image_generation_service)],
     params: ImageGenerationParams,
 ) -> ImagesResponse:
-    images_lst = image_generation.generate(
+    if not image_generation.is_valid_model(params.model):
+        return HTTPException(
+            status_code=HTTPStatus.NOT_FOUND[0],
+            detail=f"The model `{params.model}` does not exist.",
+        )
+    image_lst = image_generation.generate(
         model=params.model, prompt=params.prompt, size=params.size, num_images=params.n
     )
-    images_base64 = [ImageInResponse(b64_json=np_to_base64(image)) for image in images_lst]
-    return ImagesResponse(created=int(time.time()), data=images_base64)
+    image_b64_lst = [ImageInResponse(b64_json=np_to_base64(image)) for image in image_lst]
+    return ImagesResponse(created=int(time.time()), data=image_b64_lst)

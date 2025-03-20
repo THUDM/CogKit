@@ -3,8 +3,9 @@
 
 import numpy as np
 from diffusers import CogView4Pipeline
-from cogkit.api.settings import APISettings
+
 from cogkit.api.logging import get_logger
+from cogkit.api.settings import APISettings
 
 _logger = get_logger(__name__)
 
@@ -35,7 +36,7 @@ class ImageGenerationService(object):
         if model not in self._models:
             raise ValueError(f"Model {model} not loaded")
         width, height = list(map(int, size.split("x")))
-        images_lst = self._models[model](
+        image_lst = self._models[model](
             prompt=prompt,
             height=height,
             width=width,
@@ -44,4 +45,7 @@ class ImageGenerationService(object):
             num_images_per_prompt=num_images,
             output_type="np",
         ).images
-        return images_lst
+        return image_lst
+
+    def is_valid_model(self, model: str) -> bool:
+        return model in self._models

@@ -3,13 +3,7 @@
 
 from typing import Literal
 
-from pydantic import field_validator
-
 from cogkit.api.models.request import RequestParams
-from cogkit.api.settings import APISettings
-
-
-settings = APISettings()
 
 
 class ImageGenerationParams(RequestParams):
@@ -24,11 +18,3 @@ class ImageGenerationParams(RequestParams):
     # quality: Literal["standard", "hd"] = "standard"
     # response_format: Literal["url", "b64_json"] = "url"
     # style: Literal["vivid", "natural"] = "vivid"
-
-    @field_validator("model")
-    def validate_model(cls, v):
-        if v not in settings.supported_models:
-            raise ValueError(
-                f"Model {v} not supported, supported list: {settings.supported_models}"
-            )
-        return v
