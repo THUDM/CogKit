@@ -2,12 +2,14 @@
 
 
 import base64
+import io
 import time
 from http import HTTPStatus
 from typing import Annotated
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
+from PIL import Image
 
 from cogkit.api.dependencies import get_image_generation_service
 from cogkit.api.models.images import ImageGenerationParams, ImageInResponse, ImagesResponse
@@ -17,9 +19,10 @@ router = APIRouter()
 
 
 def np_to_base64(image_array: np.ndarray) -> str:
-    byte_stream = image_array.tobytes()
-    base64_str = base64.b64encode(byte_stream).decode("utf-8")
-    return base64_str
+    image = Image.fromarray(image_array)
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 
 @router.post("/generations", response_model=ImagesResponse)
@@ -29,9 +32,10 @@ def generations(
 ) -> ImagesResponse:
     if not image_generation.is_valid_model(params.model):
         return HTTPException(
-            status_code=HTTPStatus.NOT_FOUND.value,
+            status_code=HTTPStatus.NOT_FOUND,
             detail=f"The model `{params.model}` does not exist.",
         )
+    # TODO: add exception handling
     image_lst = image_generation.generate(
         model=params.model, prompt=params.prompt, size=params.size, num_images=params.n
     )

@@ -36,7 +36,9 @@ class ImageGenerationService(object):
         if model not in self._models:
             raise ValueError(f"Model {model} not loaded")
         width, height = list(map(int, size.split("x")))
-        image_lst = self._models[model](
+
+        # shape of image_np: (n, h, w, c)
+        image_np = self._models[model](
             prompt=prompt,
             height=height,
             width=width,
@@ -45,7 +47,16 @@ class ImageGenerationService(object):
             num_images_per_prompt=num_images,
             output_type="np",
         ).images
+        assert image_np.ndim == 4, f"Expected 4D array, got {image_np.ndim}D array"
+
+        image_lst = self.postprocess(image_np)
         return image_lst
 
     def is_valid_model(self, model: str) -> bool:
         return model in self._models
+
+    def postprocess(self, image_np: np.ndarray) -> list[np.ndarray]:
+        image_np = (image_np * 255).round().astype("uint8")
+        image_lst = np.split(image_np, image_np.shape[0], axis=0)
+        image_lst = [img.squeeze(0) for img in image_lst]
+        return image_lst
