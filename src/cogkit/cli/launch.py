@@ -27,6 +27,14 @@ def launch(
     port: int = 8000,
     workers: int = 1,
 ) -> None:
+    """
+    Launch the API server.
+
+    Parameters:
+    - host (str): The host to serve on, default: 127.0.0.1
+    - port (int): The port to serve on, default: 8000
+    - workers (int): The number of worker process, default: 1
+    """
     _run(
         path=resolve_path(api.__file__),
         host=host,
