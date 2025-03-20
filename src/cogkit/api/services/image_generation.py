@@ -3,21 +3,37 @@
 
 import numpy as np
 from diffusers import CogView4Pipeline
+from cogkit.api.settings import APISettings
+from cogkit.api.logging import get_logger
+
+_logger = get_logger(__name__)
 
 
 class ImageGenerationService(object):
-    def __init__(self, cogview4_path: str | None) -> None:
+    def __init__(self, settings: APISettings) -> None:
         self._models = {}
-        if cogview4_path is not None:
-            cogview4_pl = CogView4Pipeline.from_pretrained(cogview4_path)
+        if settings.cogview4_path is not None:
+            cogview4_pl = CogView4Pipeline.from_pretrained(settings.cogview4_path)
             cogview4_pl.enable_model_cpu_offload()
             cogview4_pl.vae.enable_slicing()
-            cogview4_pl.vae.enable_titling()
+            cogview4_pl.vae.enable_tiling()
             self._models["cogview-4"] = cogview4_pl
 
-    def generate(self, model: str, prompt: str, size: int, num_images: int) -> list[np.ndarray]:
+        ### Check if loaded models are supported
+        for model in self._models.keys():
+            if model not in settings._supported_models:
+                raise ValueError(
+                    f"Registered model {model} not in supported list: {settings._supported_models}"
+                )
+
+        ### Check if all supported models are loaded
+        for model in settings._supported_models:
+            if model not in self._models:
+                _logger.warning(f"Model {model} not loaded")
+
+    def generate(self, model: str, prompt: str, size: str, num_images: int) -> list[np.ndarray]:
         if model not in self._models:
-            raise ValueError(f"Model {model} not found")
+            raise ValueError(f"Model {model} not loaded")
         width, height = list(map(int, size.split("x")))
         images_lst = self._models[model](
             prompt=prompt,

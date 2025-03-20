@@ -8,4 +8,5 @@ class APISettings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore", validate_default=True, validate_assignment=True
     )
-    cogview4_path: str = "THUDM/CogView4-6B"
+    _supported_models: tuple[str] = ("cogview-4",)
+    cogview4_path: str | None = None

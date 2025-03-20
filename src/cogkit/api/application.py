@@ -22,7 +22,7 @@ def get_application(settings: APISettings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[RequestState]:
-        yield {"image_generation": ImageGenerationService(settings.cogview4_path)}
+        yield {"image_generation": ImageGenerationService(settings)}
 
     app = FastAPI(lifespan=lifespan)
 
