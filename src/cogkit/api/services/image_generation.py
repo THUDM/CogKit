@@ -32,6 +32,10 @@ class ImageGenerationService(object):
             if model not in self._models:
                 _logger.warning(f"Model {model} not loaded")
 
+    @property
+    def supported_models(self) -> list[str]:
+        return list(self._models.keys())
+
     def generate(self, model: str, prompt: str, size: str, num_images: int) -> list[np.ndarray]:
         if model not in self._models:
             raise ValueError(f"Model {model} not loaded")
