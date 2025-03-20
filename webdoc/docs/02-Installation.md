@@ -3,37 +3,29 @@
 
 # Installation
 
-CogKit can be installed using pip. We recommend using a virtual environment to avoid conflicts with other packages.
+`cogkit` can be installed using pip. We recommend using a virtual environment to avoid conflicts with other packages.
 
 ## Requirements
 
 - Python 3.10 or higher
-- CUDA-compatible GPU (for optimal performance)
-- At least 8GB of GPU memory for inference, 16GB+ recommended for fine-tuning
+- OpenCV and PyTorch
 
 ## Installation Steps
 
-### Create a virtual environment (recommended)
+### OpenCV
 
-```bash
-# Using venv
-python -m venv cogkit-env
-source cogkit-env/bin/activate
+Please refer to the [opencv-python installation guide](https://github.com/opencv/opencv-python?tab=readme-ov-file#installation-and-usage) for instructions on installing OpenCV according to your system.
 
-# Or using conda
-conda create -n cogkit-env python=3.10
-conda activate cogkit-env
-```
-
-### Install PyTorch
+### PyTorch
 
 Please refer to the [PyTorch installation guide](https://pytorch.org/get-started/locally/) for instructions on installing PyTorch according to your system.
 
-### Install Cogkit
+### CogKit
 
-1. Install Cogkit:
+1. Install `cogkit`:
+
    ```bash
-   pip install cogkit@git+https://github.com/thudm/cogkit.git
+   pip install cogkit@git+https://github.com/THUDM/cogkit.git
    ```
 
 2. Optional: for video tasks (e.g. text-to-video), install additional dependencies:
@@ -41,7 +33,6 @@ Please refer to the [PyTorch installation guide](https://pytorch.org/get-started
    ```bash
    pip install -e .[video]
    ```
-
 
 ### Verify installation
 

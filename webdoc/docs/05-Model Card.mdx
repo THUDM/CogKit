@@ -3,7 +3,7 @@
 
 # Model Card
 
-Here is a detailed description of how CogKit supports models.
+Here is a detailed description of how `cogkit` supports models.
 
 All training requirements must be strictly followed as specified in the table below, including resolution, number of frames, prompt token limit, and video length requirements.
 
@@ -27,9 +27,9 @@ All training requirements must be strictly followed as specified in the table be
     <td style={{ textAlign: "center" }}>September 19, 2024</td>
   </tr>
   <tr>
-    <td style={{ textAlign: "center" }}>Video Resolution</td>
+    <td style={{ textAlign: "center" }}>Video Resolution (W * H) </td>
     <td colspan="1" style={{ textAlign: "center" }}>1360 * 768</td>
-    <td colspan="1" style={{ textAlign: "center" }}>Min(W, H) &#61 768 <br/> 768 ≤ Max(W, H) ≤ 1360 <br/> Max(W, H) % 16 &#61 0</td>
+    <td colspan="1" style={{ textAlign: "center" }}>Min(W, H) = 768 <br/> 768 ≤ Max(W, H) ≤ 1360 <br/> Max(W, H) % 16 = 0</td>
     <td colspan="3" style={{ textAlign: "center" }}>720 * 480</td>
   </tr>
   <tr>
@@ -80,7 +80,7 @@ All training requirements must be strictly followed as specified in the table be
   </tr>
   <tr>
     <td style={{ textAlign: "center" }}>Resolution</td>
-    <td style={{ textAlign: "center" }}>512 ≤ (W, H) ≤ 2048 <br/> H * W ≤ 2^{21} <br/> Max(W, H) % 32 &#61 0 </td>
+    <td style={{ textAlign: "center" }}>512 ≤ (W, H) ≤ 2048 <br/> H * W ≤ 2^{21} <br/> Max(W, H) % 32 = 0 </td>
   </tr>
   <tr>
     <td style={{ textAlign: "center" }}>Prompt Language</td>

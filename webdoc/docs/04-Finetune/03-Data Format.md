@@ -7,6 +7,7 @@
 `src/cogkit/finetune/data` directory contains various dataset templates for fine-tuning different models, please refer to the corresponding dataset template based on your task type:
 
 ## Text-to-Image Conversion Dataset (t2i)
+
 - Each directory contains a set of image files (`.png`)
 - The `metadata.jsonl` file contains text descriptions for each image
 
@@ -34,12 +35,11 @@
     ```
 
     :::info
-    - Image files are optional; if not provided, the system will default to using the first frame of the video as the input image
-    - When image files are provided, they are associated with the video file of the same name through the id field
+  - Image files are optional; if not provided, the system will default to using the first frame of the video as the input image
+  - When image files are provided, they are associated with the video file of the same name through the id field
     :::
 
 ## Notes
 
-- Training sets (`train/`) are used for model training
-- Test sets (`test/`) are used for evaluating model performance
-- Each dataset will generate a `.cache/` directory during training, used to store preprocessed cache data. If the dataset changes, you need to **manually delete this directory** and retrain.
+- Training sets (`train/`) are used for model training, test sets (`test/`) are used for evaluating model performance
+- Each dataset will generate a `.cache/` directory during training, used to store preprocessed data. If the dataset changes, you need to **manually delete this directory** and retrain.

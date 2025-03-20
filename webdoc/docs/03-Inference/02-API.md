@@ -3,11 +3,11 @@
 
 # API
 
-CogKit provides a powerful inference API for generating images and videos using various AI models. This document covers both the Python API and API server.
+`cogkit` provides a powerful inference API for generating images and videos using various AI models. This document covers both the Python API and API server.
 
 ## Python API
 
-You can also use Cogkit programmatically in your Python code:
+You can also use `cogkit` programmatically in your Python code:
 
 ```python
 from cogkit.generation import generate_image, generate_video
@@ -32,6 +32,10 @@ video = generate_video(
 )
 video.save("cat_video.mp4")
 ```
+<!-- TODO: add examples for i2v -->
+
+<!-- FIXME: correct url -->
+See function signatures in [generation.py](...) for more details.
 
 ## API Server
 
