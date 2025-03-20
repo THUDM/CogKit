@@ -31,7 +31,7 @@ def generations(
     params: ImageGenerationParams,
 ) -> ImagesResponse:
     if not image_generation.is_valid_model(params.model):
-        return HTTPException(
+        raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail=f"The model `{params.model}` does not exist.",
         )
