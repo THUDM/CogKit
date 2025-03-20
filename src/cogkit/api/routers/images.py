@@ -3,8 +3,8 @@
 
 import base64
 import time
-from typing import Annotated
 from http import HTTPStatus
+from typing import Annotated
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,7 +29,7 @@ def generations(
 ) -> ImagesResponse:
     if not image_generation.is_valid_model(params.model):
         return HTTPException(
-            status_code=HTTPStatus.NOT_FOUND[0],
+            status_code=HTTPStatus.NOT_FOUND.value,
             detail=f"The model `{params.model}` does not exist.",
         )
     image_lst = image_generation.generate(
