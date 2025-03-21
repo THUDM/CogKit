@@ -1,7 +1,6 @@
 ---
 ---
 
-<!-- TODO: check this doc -->
 # Command-Line Interface
 
 CogKit provides a powerful command-line interface (CLI) that allows you to perform various tasks without writing Python code. This guide covers the available commands and their usage.
@@ -36,28 +35,26 @@ cogkit inference "a beautiful sunset over mountains" "THUDM/CogView4-6B"
 cogkit inference "a cat playing with a ball" "THUDM/CogVideoX1.5-5B"
 ```
 
-<!-- TODO: Add example for i2v -->
-
 :::tip
 See `cogkit inference --help` for more information.
 :::
 
-<!-- TODO: add docs for launch server -->
 ## Launch Command
 
 The `launch` command starts an API server for image and video generation. Before using this command, you need to install the API dependencies:
 
+<!-- FIXME: check url -->
 ```bash
-pip install "cogkit[api]@git+https://github.com/THUDM/cogkit.git"
+pip install "cogkit[api]@git+https://github.com/THUDM/CogKit.git"
 ```
 
-<!-- FIXME: correct url -->
+<!-- FIXME: check url -->
 Before starting the server, make sure to configure the model paths that you want to serve. This step is necessary to specify which models will be available through the API server.
 
 To configure the model paths:
 
 1. Create a `.env` file in your working directory
-2. Refer to the [environment template]() and add needed environment variables to specify model paths. For example, to serve `CogView4-6B` as a service, you must specify `COGVIEW4_PATH` in your `.env` file:
+2. Refer to the [environment template](https://github.com/THUDM/CogKit/blob/main/.env.template) and add needed environment variables to specify model paths. For example, to serve `CogView4-6B` as a service, you must specify `COGVIEW4_PATH` in your `.env` file:
 
     ```bash
     # /your/workdir/.env

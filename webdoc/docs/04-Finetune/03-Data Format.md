@@ -4,7 +4,7 @@
 # Dataset Format
 
 <!-- TODO: add link to data dir -->
-`src/cogkit/finetune/data` directory contains various dataset templates for fine-tuning different models, please refer to the corresponding dataset template based on your task type:
+`CogKit/quickstart/data` directory contains various dataset templates for fine-tuning different models, please refer to the corresponding dataset template based on your task type:
 
 ## Text-to-Image Conversion Dataset (t2i)
 
@@ -42,4 +42,5 @@
 ## Notes
 
 - Training sets (`train/`) are used for model training, test sets (`test/`) are used for evaluating model performance
+
 - Each dataset will generate a `.cache/` directory during training, used to store preprocessed data. If the dataset changes, you need to **manually delete this directory** and retrain.

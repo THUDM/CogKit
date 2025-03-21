@@ -6,7 +6,7 @@
 ## Requirements
 
 - Python 3.10 or higher
-- PyTorch
+- PyTorch, OpenCV, decord
 
 ## Installation Steps
 
@@ -14,19 +14,22 @@
 
 Please refer to the [PyTorch installation guide](https://pytorch.org/get-started/locally/) for instructions on installing PyTorch according to your system.
 
+### OpenCV
+
+Please refer to the [OpenCV installation guide](https://github.com/opencv/opencv-python?tab=readme-ov-file#installation-and-usage) to install opencv-python. In most cases, you can simply install by `pip install opencv-python-headless`
+
+### decord
+
+Please refer to the [decord installation guide](https://github.com/dmlc/decord?tab=readme-ov-file#installation) to install decord dependencies. If you don't need GPU acceleration, you can simply install by `pip install decord`
+
 ### CogKit
 
-1. Install `cogkit`:
+Install `cogkit` from github source:
 
-   ```bash
-   pip install "cogkit@git+https://github.com/THUDM/cogkit.git"
-   ```
+```bash
+pip install "cogkit@git+https://github.com/THUDM/cogkit.git"
+```
 
-2. Optional: for video tasks (e.g. text-to-video), install additional dependencies:
-
-   ```bash
-   pip install "cogkit[video]@git+https://github.com/THUDM/cogkit.git"
-   ```
 
 ### Verify installation
 

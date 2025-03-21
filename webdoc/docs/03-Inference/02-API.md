@@ -36,5 +36,4 @@ video = generate_video(
 video.save("cat_video.mp4")
 ```
 
-<!-- FIXME: correct url -->
-See function signatures in [generation.py]() for more details.
+See function signatures in for more details.
