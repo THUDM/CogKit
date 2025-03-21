@@ -27,6 +27,7 @@ dependencies = [
 torch = ["numpy", "torch", "torchvision"]
 api = [
   "fastapi[standard]~=0.115.11",
+  "openai~=1.67",
   "pydantic-settings~=2.8",
   "python-dotenv~=1.0",
 ]
