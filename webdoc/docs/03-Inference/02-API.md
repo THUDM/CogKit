@@ -3,7 +3,7 @@
 
 # API
 
-`cogkit` provides a powerful inference API for generating images and videos using various AI models. This document covers both the Python API and API server.
+CogKit provides a powerful inference API for generating images and videos using various AI models. This document covers both the Python API and API server.
 
 ## Python API
 
@@ -18,12 +18,15 @@ image = generate_image(
     model_id_or_path="THUDM/CogView4-6B",
     lora_model_id_or_path=None,
     transformer_path=None,
+    height=1024,
+    width=1024,
 )
 image.save("sunset.png")
 
-# Text-to-Video generation
+# Text/Image-to-Video generation
 video = generate_video(
     prompt="a cat playing with a ball",
+    image_file="path/to/image.png",  # Needed for Image-to-Video task
     model_id_or_path="THUDM/CogVideoX1.5-5B",
     lora_model_id_or_path=None,
     transformer_path=None,
@@ -32,13 +35,6 @@ video = generate_video(
 )
 video.save("cat_video.mp4")
 ```
-<!-- TODO: add examples for i2v -->
 
 <!-- FIXME: correct url -->
-See function signatures in [generation.py](...) for more details.
-
-## API Server
-
-<!-- FIXME: add docs for the API server -->
-
-<!-- TODO: add examples -->
+See function signatures in [generation.py]() for more details.
