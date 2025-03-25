@@ -5,10 +5,10 @@
 * Please refer to the [installation guide](../02-Installation.md) to setup your environment first
 
 <!-- FIXME: change to THUDM later -->
-* We provide various training scripts and example datasets in the `CogKit/quickstart/` directory, so you need to clone our repository before training:
+* We provide various training scripts and example datasets in the `CogKit/quickstart` directory, so you need to clone our repository before training:
 
    ```bash
-   git clone https://github.com/zRzRzRzRzRzRzR/CogKit.git
+   git clone https://github.com/THUDM/CogKit.git
    ```
 
 ## Data

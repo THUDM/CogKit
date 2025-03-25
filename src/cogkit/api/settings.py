@@ -13,3 +13,4 @@ class APISettings(BaseSettings):
     cogview4_path: str | None = None
     dtype: Literal["bfloat16", "float32"] = "bfloat16"
     offload_type: Literal["cpu_model_offolad", "no_offload"] = "no_offload"
+    openai_api_key: str | None = None
