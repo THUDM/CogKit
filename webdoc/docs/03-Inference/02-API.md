@@ -18,10 +18,11 @@ image = generate_image(
     model_id_or_path="THUDM/CogView4-6B",
     lora_model_id_or_path=None,
     transformer_path=None,
+    output_file="sunset.png", # Images will be saved here.
     height=1024,
     width=1024,
 )
-image.save("sunset.png")
+
 
 # Text/Image-to-Video generation
 video = generate_video(
@@ -30,10 +31,11 @@ video = generate_video(
     model_id_or_path="THUDM/CogVideoX1.5-5B",
     lora_model_id_or_path=None,
     transformer_path=None,
+    output_file="cat.mp4", # Videos will be saved here.
     num_frames=81,
     fps=16,
 )
-video.save("cat_video.mp4")
+
 ```
 
 See function signatures in for more details.
