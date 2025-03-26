@@ -33,6 +33,9 @@ cogkit inference "a beautiful sunset over mountains" "THUDM/CogView4-6B"
 
 # Generate a video from text
 cogkit inference "a cat playing with a ball" "THUDM/CogVideoX1.5-5B"
+
+# Controlling image generation from text
+cogkit inference "a dog" "THUDM/CogView4-6B-Control"
 ```
 
 :::tip
