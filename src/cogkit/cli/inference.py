@@ -48,12 +48,6 @@ _logger = get_logger(__name__)
 )
 @click.option("--lora_model_id_or_path", help="the id or the path of the LoRA weights")
 @click.option(
-    "--lora_rank",
-    type=click.IntRange(min=1),
-    default=128,
-    help="the rank of the LoRA weights, default is 128",
-)
-@click.option(
     "--load_type",
     type=click.Choice(
         choices=["cuda", "cpu_model_offload", "sequential_cpu_offload"], case_sensitive=False
@@ -92,7 +86,6 @@ def inference(
     dtype: Literal["bfloat16", "float16"] = "bfloat16",
     transformer_path: str | None = None,
     lora_model_id_or_path: str | None = None,
-    lora_rank: int = 128,
     load_type: Literal["cuda", "cpu_model_offload", "sequential_cpu_offload"] = "cpu_model_offload",
     # * params for output
     height: int | None = None,
@@ -111,7 +104,6 @@ def inference(
     - dtype (torch.dtype): The data type for computation (default is torch.bfloat16).
     - transformer_path (str | None): The path to load the transformer model.
     - lora_model_id_or_path (str | None): The path of the LoRA weights to be used.
-    - lora_rank (int): The rank of the LoRA weights.
     - load_type (str): The type of offloading to use for the model.
     - height (int | None): The height of the generated image/video.
     - width (int | None): The width of the generated image/video.
@@ -137,7 +129,6 @@ def inference(
             output_type="pil",
             input_image=image_file,
             lora_model_id_or_path=lora_model_id_or_path,
-            lora_rank=lora_rank,
             load_type=load_type,
             height=height,
             width=width,
@@ -159,7 +150,6 @@ def inference(
             num_images_per_prompt=1,
             output_type="pil",
             lora_model_id_or_path=lora_model_id_or_path,
-            lora_rank=lora_rank,
             load_type=load_type,
             height=height,
             width=width,

@@ -26,7 +26,6 @@ def generate_image(
     num_images_per_prompt: int = 1,
     output_type: Literal["pil", "pt", "np"] = "pil",
     lora_model_id_or_path: str | None = None,
-    lora_rank: int = 128,
     load_type: Literal["cuda", "cpu_model_offload", "sequential_cpu_offload"] = "cpu_model_offload",
     height: int | None = None,
     width: int | None = None,
@@ -48,7 +47,6 @@ def generate_image(
         - output_type: Format of the output images. Options are "pil" (PIL.Image), "pt" (PyTorch tensor), or
             "np" (NumPy array). Defaults to "pil".
         - lora_model_id_or_path: Optional path or identifier for a LoRA checkpoint. Defaults to None.
-        - lora_rank: Rank for LoRA adaptation if a LoRA model is provided. Defaults to 128.
         - load_type: Type of offloading to use for the model, use "cuda" if you have enough GPU memory. Defaults to "cpu_model_offload".
         - height: Desired height of the output images in pixels. If None, inferred from the pipeline.
         - width: Desired width of the output images in pixels. If None, inferred from the pipeline.
@@ -64,7 +62,7 @@ def generate_image(
     """
 
     if lora_model_id_or_path is not None:
-        load_lora_checkpoint(pipeline, lora_model_id_or_path, lora_rank)
+        load_lora_checkpoint(pipeline, lora_model_id_or_path)
     else:
         unload_lora_checkpoint(pipeline)
 

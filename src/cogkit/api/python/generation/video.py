@@ -42,7 +42,6 @@ def generate_video(
     input_image: Image.Image | None = None,
     # * params for model loading
     lora_model_id_or_path: str | None = None,
-    lora_rank: int = 128,
     load_type: Literal["cuda", "cpu_model_offload", "sequential_cpu_offload"] = "cpu_model_offload",
     height: int | None = None,
     width: int | None = None,
@@ -60,7 +59,6 @@ def generate_video(
         - output_type (Literal, optional): Output type, one of "pil", "pt", or "np". Defaults to "pil".
         - input_image (Image.Image | None, optional): Input image for image-to-video generation. Defaults to None.
         - lora_model_id_or_path (str | None, optional): ID or path to LoRA model. Defaults to None.
-        - lora_rank (int, optional): Rank for LoRA. Defaults to 128.
         - load_type (Literal, optional): Model loading type, one of "cuda", "cpu_model_offload", or
             "sequential_cpu_offload". Defaults to "cpu_model_offload".
         - height (int | None, optional): Height of output video. If None, will be inferred. Defaults to None.
@@ -93,7 +91,7 @@ def generate_video(
     )
 
     if lora_model_id_or_path is not None:
-        load_lora_checkpoint(pipeline, lora_model_id_or_path, lora_rank)
+        load_lora_checkpoint(pipeline, lora_model_id_or_path)
     else:
         unload_lora_checkpoint(pipeline)
 
