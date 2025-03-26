@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 import click
+from diffusers.utils import export_to_video
 from PIL import Image
 
 from cogkit.api.python import generate_image, generate_video
@@ -14,13 +15,12 @@ from cogkit.types import GenerationMode
 from cogkit.utils import (
     cast_to_torch_dtype,
     guess_generation_mode,
-    load_pipeline,
     load_lora_checkpoint,
-    unload_lora_checkpoint,
+    load_pipeline,
     mkdir,
     resolve_path,
+    unload_lora_checkpoint,
 )
-from diffusers.utils import export_to_video
 
 _logger = get_logger(__name__)
 
@@ -115,7 +115,11 @@ def inference(
 
     dtype = cast_to_torch_dtype(dtype)
     pipeline = load_pipeline(model_id_or_path, transformer_path, dtype)
-    task = guess_generation_mode(pipeline=pipeline, image_file=image_file)
+    image = None
+    # TODO: No need to load the image every time. Some generation tasks cannot handle images.
+    if image_file is not None:
+        image = Image.open(image_file)
+    task = guess_generation_mode(pipeline=pipeline, image=image)
 
     if lora_model_id_or_path is not None:
         load_lora_checkpoint(pipeline, lora_model_id_or_path)
@@ -126,15 +130,12 @@ def inference(
         GenerationMode.TextToVideo,
         GenerationMode.ImageToVideo,
     ):
-        if image_file is not None:
-            image_file = Image.open(image_file)
-
         output, fps = generate_video(
             prompt=prompt,
             pipeline=pipeline,
             num_videos_per_prompt=1,
             output_type="pil",
-            input_image=image_file,
+            input_image=image,
             load_type=load_type,
             height=height,
             width=width,

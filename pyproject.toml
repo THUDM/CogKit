@@ -28,9 +28,8 @@ torch = ["numpy", "torch", "torchvision"]
 api = [
   "fastapi[standard]~=0.115.11",
   "fastapi_cli~=0.0.7",
-  "pydantic_settings~=2.8.1",
   "openai~=1.67",
-  "pydantic-settings~=2.8",
+  "pydantic_settings~=2.8.1",
   "python-dotenv~=1.0",
 ]
 

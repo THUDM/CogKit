@@ -6,6 +6,8 @@ from typing import Any, List, Literal
 
 import numpy as np
 import torch
+from diffusers import DiffusionPipeline
+from diffusers.pipelines.cogvideo.pipeline_output import CogVideoXPipelineOutput
 from PIL import Image
 
 from cogkit.logging import get_logger
@@ -14,8 +16,6 @@ from cogkit.utils import (
     guess_generation_mode,
     rand_generator,
 )
-from diffusers import DiffusionPipeline
-from diffusers.pipelines.cogvideo.pipeline_output import CogVideoXPipelineOutput
 
 from .util import before_generation, guess_frames, guess_resolution
 
@@ -83,7 +83,7 @@ def generate_video(
     task = guess_generation_mode(
         pipeline=pipeline,
         generation_mode=None,
-        image_file=input_image,
+        image=input_image,
     )
 
     height, width = guess_resolution(pipeline, height, width)
@@ -111,7 +111,6 @@ def generate_video(
     if task == GenerationMode.TextToVideo:
         pipeline_out = pipeline_fn()
     elif task == GenerationMode.ImageToVideo:
-        # pipeline_out = pipeline_fn(image=Image.open(input_image))
         pipeline_out = pipeline_fn(image=input_image)
     else:
         err_msg = f"Unknown generation mode: {task.value}"
