@@ -12,9 +12,7 @@ from cogkit.logging import get_logger
 from cogkit.types import GenerationMode
 from cogkit.utils import (
     guess_generation_mode,
-    load_lora_checkpoint,
     rand_generator,
-    unload_lora_checkpoint,
 )
 from diffusers import DiffusionPipeline
 from diffusers.pipelines.cogvideo.pipeline_output import CogVideoXPipelineOutput
@@ -41,7 +39,6 @@ def generate_video(
     output_type: Literal["pil", "pt", "np"] = "pil",
     input_image: Image.Image | None = None,
     # * params for model loading
-    lora_model_id_or_path: str | None = None,
     load_type: Literal["cuda", "cpu_model_offload", "sequential_cpu_offload"] = "cpu_model_offload",
     height: int | None = None,
     width: int | None = None,
@@ -58,7 +55,6 @@ def generate_video(
         - num_videos_per_prompt (int, optional): Number of videos to generate per prompt. Defaults to 1.
         - output_type (Literal, optional): Output type, one of "pil", "pt", or "np". Defaults to "pil".
         - input_image (Image.Image | None, optional): Input image for image-to-video generation. Defaults to None.
-        - lora_model_id_or_path (str | None, optional): ID or path to LoRA model. Defaults to None.
         - load_type (Literal, optional): Model loading type, one of "cuda", "cpu_model_offload", or
             "sequential_cpu_offload". Defaults to "cpu_model_offload".
         - height (int | None, optional): Height of output video. If None, will be inferred. Defaults to None.
@@ -89,11 +85,6 @@ def generate_video(
         generation_mode=None,
         image_file=input_image,
     )
-
-    if lora_model_id_or_path is not None:
-        load_lora_checkpoint(pipeline, lora_model_id_or_path)
-    else:
-        unload_lora_checkpoint(pipeline)
 
     height, width = guess_resolution(pipeline, height, width)
     num_frames, fps = guess_frames(pipeline, num_frames)

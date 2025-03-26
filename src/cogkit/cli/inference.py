@@ -15,6 +15,8 @@ from cogkit.utils import (
     cast_to_torch_dtype,
     guess_generation_mode,
     load_pipeline,
+    load_lora_checkpoint,
+    unload_lora_checkpoint,
     mkdir,
     resolve_path,
 )
@@ -115,6 +117,11 @@ def inference(
     pipeline = load_pipeline(model_id_or_path, transformer_path, dtype)
     task = guess_generation_mode(pipeline=pipeline, image_file=image_file)
 
+    if lora_model_id_or_path is not None:
+        load_lora_checkpoint(pipeline, lora_model_id_or_path)
+    else:
+        unload_lora_checkpoint(pipeline)
+
     if task in (
         GenerationMode.TextToVideo,
         GenerationMode.ImageToVideo,
@@ -128,7 +135,6 @@ def inference(
             num_videos_per_prompt=1,
             output_type="pil",
             input_image=image_file,
-            lora_model_id_or_path=lora_model_id_or_path,
             load_type=load_type,
             height=height,
             width=width,
@@ -149,7 +155,6 @@ def inference(
             pipeline=pipeline,
             num_images_per_prompt=1,
             output_type="pil",
-            lora_model_id_or_path=lora_model_id_or_path,
             load_type=load_type,
             height=height,
             width=width,

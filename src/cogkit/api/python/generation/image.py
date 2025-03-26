@@ -9,9 +9,7 @@ from PIL import Image
 
 from cogkit.logging import get_logger
 from cogkit.utils import (
-    load_lora_checkpoint,
     rand_generator,
-    unload_lora_checkpoint,
 )
 from diffusers import DiffusionPipeline
 
@@ -25,7 +23,6 @@ def generate_image(
     pipeline: DiffusionPipeline,
     num_images_per_prompt: int = 1,
     output_type: Literal["pil", "pt", "np"] = "pil",
-    lora_model_id_or_path: str | None = None,
     load_type: Literal["cuda", "cpu_model_offload", "sequential_cpu_offload"] = "cpu_model_offload",
     height: int | None = None,
     width: int | None = None,
@@ -46,7 +43,6 @@ def generate_image(
         - num_images_per_prompt: Number of images to generate per prompt. Defaults to 1.
         - output_type: Format of the output images. Options are "pil" (PIL.Image), "pt" (PyTorch tensor), or
             "np" (NumPy array). Defaults to "pil".
-        - lora_model_id_or_path: Optional path or identifier for a LoRA checkpoint. Defaults to None.
         - load_type: Type of offloading to use for the model, use "cuda" if you have enough GPU memory. Defaults to "cpu_model_offload".
         - height: Desired height of the output images in pixels. If None, inferred from the pipeline.
         - width: Desired width of the output images in pixels. If None, inferred from the pipeline.
@@ -60,11 +56,6 @@ def generate_image(
         - If output_type is "pt": PyTorch tensor of shape (num_images, 3, height, width) with dtype torch.uint8.
         - If output_type is "np": NumPy array of shape (num_images, height, width, 3) with dtype uint8.
     """
-
-    if lora_model_id_or_path is not None:
-        load_lora_checkpoint(pipeline, lora_model_id_or_path)
-    else:
-        unload_lora_checkpoint(pipeline)
 
     height, width = guess_resolution(pipeline, height, width)
 
