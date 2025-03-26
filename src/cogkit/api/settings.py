@@ -10,7 +10,12 @@ class APISettings(BaseSettings):
         extra="ignore", validate_default=True, validate_assignment=True, env_file=".env"
     )
     _supported_models: tuple[str, ...] = ("cogview-4",)
-    cogview4_path: str | None = None
+
     dtype: Literal["bfloat16", "float32"] = "bfloat16"
-    offload_type: Literal["cpu_model_offolad", "no_offload"] = "no_offload"
-    openai_api_key: str | None = None
+    offload_type: Literal["cuda", "cpu_model_offload", "sequential_cpu_offload"] = (
+        "cpu_model_offload"
+    )
+
+    # cogview-4 related settings
+    cogview4_path: str | None = None
+    cogview4_transformer_path: str | None = None

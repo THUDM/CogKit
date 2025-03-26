@@ -1,14 +1,26 @@
 # -*- coding: utf-8 -*-
 
 
+import os
 from pathlib import Path
 from typing import Literal
 
 import click
+from PIL import Image
 
-from cogkit.generation import generate_image, generate_video
+from cogkit.api.python import generate_image, generate_video
+from cogkit.logging import get_logger
 from cogkit.types import GenerationMode
-from cogkit.utils import cast_to_torch_dtype, guess_generation_mode
+from cogkit.utils import (
+    cast_to_torch_dtype,
+    guess_generation_mode,
+    load_pipeline,
+    mkdir,
+    resolve_path,
+)
+from diffusers.utils import export_to_video
+
+_logger = get_logger(__name__)
 
 
 @click.command()
@@ -18,51 +30,54 @@ from cogkit.utils import cast_to_torch_dtype, guess_generation_mode
     help="the path to save the generated image/video. If not provided, the generated image/video will be saved to 'output.png/mp4'.",
 )
 @click.option(
-    "--task",
-    type=click.Choice(
-        choices=[mode.value for mode in GenerationMode],
-        case_sensitive=False,
-    ),
-    help="the generation task",
-)
-@click.option(
     "--image_file",
     type=click.Path(exists=True, file_okay=True, dir_okay=False, readable=True),
-    help="the image to guide the video generation (for i2v generation task)",
-)
-@click.option(
-    "--video_file",
-    type=click.Path(exists=True, file_okay=True, dir_okay=False, readable=True),
-    help="the video to guide the video generation (for v2v generation task)",
+    help="the image to guide the image/video generation (for i2i/i2v generation task)",
 )
 @click.option(
     "--dtype",
     type=click.Choice(choices=["bfloat16", "float16"], case_sensitive=False),
     default="bfloat16",
-    help="the data type used in the computation",
+    help="the data type used in the computation, default is 'bfloat16'",
 )
 @click.option(
     "--transformer_path",
     type=click.Path(file_okay=False, exists=True),
     default=None,
-    help="the path to load the transformer model",
+    help="the path to load the transformer model, default is None",
 )
 @click.option("--lora_model_id_or_path", help="the id or the path of the LoRA weights")
 @click.option(
     "--lora_rank",
     type=click.IntRange(min=1),
     default=128,
-    help="the rank of the LoRA weights",
+    help="the rank of the LoRA weights, default is 128",
+)
+@click.option(
+    "--load_type",
+    type=click.Choice(
+        choices=["cuda", "cpu_model_offload", "sequential_cpu_offload"], case_sensitive=False
+    ),
+    default="cpu_model_offload",
+    help="the type of offloading to use for the model, from fastest to slowest and lowest to highest GPU memory usage. default is 'cpu_model_offload'.",
 )
 @click.option(
     "--height",
     type=click.IntRange(min=1),
-    help="the height of the generated image/video",
+    default=None,
+    help="the height of the generated image/video, will be inferred from the model if not provided",
 )
 @click.option(
     "--width",
     type=click.IntRange(min=1),
-    help="the width of the generated image/video",
+    default=None,
+    help="the width of the generated image/video, will be inferred from the model if not provided",
+)
+@click.option(
+    "--num_inference_steps",
+    type=click.IntRange(min=1),
+    default=50,
+    help="the number of inference steps, default is 50",
 )
 @click.option("--seed", type=int, help="the seed for reproducibility")
 @click.argument("prompt")
@@ -71,18 +86,18 @@ def inference(
     prompt: str,
     model_id_or_path: str,
     output_file: str | Path | None = None,
-    task: GenerationMode | None = None,
     # * additional input
     image_file: str | Path | None = None,
-    video_file: str | Path | None = None,
     # * params for model loading
     dtype: Literal["bfloat16", "float16"] = "bfloat16",
     transformer_path: str | None = None,
     lora_model_id_or_path: str | None = None,
     lora_rank: int = 128,
+    load_type: Literal["cuda", "cpu_model_offload", "sequential_cpu_offload"] = "cpu_model_offload",
     # * params for output
     height: int | None = None,
     width: int | None = None,
+    num_inference_steps: int = 50,
     seed: int = 42,
 ) -> None:
     """
@@ -91,53 +106,73 @@ def inference(
     Parameters:
     - prompt (str): The description of the video to be generated.
     - model_id_or_path (str): The path of the pre-trained model to be used.
-    - output_file (str | Path): The path where the generated image or video will be saved.
-    - task (GenerationMode): The type of generation task to be performed (e.g., 't2v', 'i2v', 'v2v', 't2i').
+    - output_file (str | Path): The path where the generated image(.png) or video(.mp4) will be saved.
     - image_file (str | Path | None): The path of the image (for i2v generation task).
-    - video_file (str | Path | None): The path of the video (for v2v generation task).
     - dtype (torch.dtype): The data type for computation (default is torch.bfloat16).
     - transformer_path (str | None): The path to load the transformer model.
     - lora_model_id_or_path (str | None): The path of the LoRA weights to be used.
     - lora_rank (int): The rank of the LoRA weights.
+    - load_type (str): The type of offloading to use for the model.
     - height (int | None): The height of the generated image/video.
     - width (int | None): The width of the generated image/video.
+    - num_inference_steps (int): The number of inference steps.
     - seed (int): The seed for reproducibility.
     """
 
-    task = guess_generation_mode(model_id_or_path, task, image_file, video_file)
     dtype = cast_to_torch_dtype(dtype)
+    pipeline = load_pipeline(model_id_or_path, transformer_path, dtype)
+    task = guess_generation_mode(pipeline=pipeline, image_file=image_file)
 
     if task in (
         GenerationMode.TextToVideo,
         GenerationMode.ImageToVideo,
     ):
-        generate_video(
-            task,
-            prompt,
-            model_id_or_path,
-            output_file or "output.mp4",
-            image_file,
-            video_file,
-            dtype=dtype,
-            transformer_path=transformer_path,
+        if image_file is not None:
+            image_file = Image.open(image_file)
+
+        output, fps = generate_video(
+            prompt=prompt,
+            pipeline=pipeline,
+            num_videos_per_prompt=1,
+            output_type="pil",
+            input_image=image_file,
             lora_model_id_or_path=lora_model_id_or_path,
             lora_rank=lora_rank,
+            load_type=load_type,
             height=height,
             width=width,
+            num_inference_steps=num_inference_steps,
             seed=seed,
         )
+        assert len(output) == 1
+
+        output_file = output_file or "output.mp4"
+        output_file = resolve_path(output_file)
+        mkdir(output_file.parent)
+        _logger.info("Saving the generated video to path '%s'.", os.fspath(output_file))
+        export_to_video(output[0], output_file, fps=fps)
+
     elif task in (GenerationMode.TextToImage,):
-        generate_image(
-            prompt,
-            model_id_or_path,
-            output_file or "output.png",
-            dtype=dtype,
-            transformer_path=transformer_path,
+        batched_images = generate_image(
+            prompt=prompt,
+            pipeline=pipeline,
+            num_images_per_prompt=1,
+            output_type="pil",
             lora_model_id_or_path=lora_model_id_or_path,
+            lora_rank=lora_rank,
+            load_type=load_type,
             height=height,
             width=width,
+            num_inference_steps=num_inference_steps,
             seed=seed,
         )
+        assert len(batched_images) == 1
+
+        output_file = output_file or "output.png"
+        output_file = resolve_path(output_file)
+        mkdir(output_file.parent)
+        _logger.info("Saving the generated image to path '%s'.", os.fspath(output_file))
+        batched_images[0].save(output_file)
     else:
         err_msg = f"Unknown generation task: {task.value}"
         raise ValueError(err_msg)

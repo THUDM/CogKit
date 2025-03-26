@@ -231,8 +231,6 @@ class BaseTrainer(ABC):
             self.accelerator.state.deepspeed_plugin is not None
             and "scheduler" in self.accelerator.state.deepspeed_plugin.deepspeed_config
         )
-        total_training_steps = self.args.train_steps * self.accelerator.num_processes
-        num_warmup_steps = self.args.lr_warmup_steps * self.accelerator.num_processes
 
         if use_deepspeed_lr_scheduler:
             from accelerate.utils import DummyScheduler
@@ -240,15 +238,15 @@ class BaseTrainer(ABC):
             lr_scheduler = DummyScheduler(
                 name=self.args.lr_scheduler,
                 optimizer=optimizer,
-                total_num_steps=total_training_steps,
-                num_warmup_steps=num_warmup_steps,
+                total_num_steps=self.args.train_steps,
+                num_warmup_steps=self.args.lr_warmup_steps,
             )
         else:
             lr_scheduler = get_scheduler(
                 name=self.args.lr_scheduler,
                 optimizer=optimizer,
-                num_warmup_steps=num_warmup_steps,
-                num_training_steps=total_training_steps,
+                num_warmup_steps=self.args.lr_warmup_steps,
+                num_training_steps=self.args.train_steps,
                 num_cycles=self.args.lr_num_cycles,
                 power=self.args.lr_power,
             )

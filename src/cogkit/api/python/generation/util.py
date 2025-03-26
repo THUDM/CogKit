@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from typing import Literal
 
 from diffusers import (
     CogVideoXDPMScheduler,
@@ -132,18 +133,24 @@ def guess_frames(pipeline: TVideoPipeline, frames: int | None = None) -> tuple[i
     return frames, fps
 
 
-def before_generation(pipeline: TPipeline) -> None:
+def before_generation(
+    pipeline: TPipeline,
+    load_type: Literal["cuda", "cpu_model_offload", "sequential_cpu_offload"] = "cpu_model_offload",
+) -> None:
     if isinstance(pipeline, TVideoPipeline):
         pipeline.scheduler = CogVideoXDPMScheduler.from_config(
             pipeline.scheduler.config, timestep_spacing="trailing"
         )
 
-    # * enables CPU offload for the model.
-    # turns off if you have multiple GPUs or enough GPU memory(such as H100) and it will cost less time in inference
-    # and enable to("cuda")
-    pipeline.to("cuda")
-    # pipeline.enable_model_cpu_offload()
-    # pipe.enable_sequential_cpu_offload()
+    # turns off offload if you have multiple GPUs or enough GPU memory(such as H100) and it will cost less time in inference
+    if load_type == "cuda":
+        pipeline.to("cuda")
+    elif load_type == "cpu_model_offload":
+        pipeline.enable_model_cpu_offload()
+    elif load_type == "sequential_cpu_offload":
+        pipeline.enable_sequential_cpu_offload()
+    else:
+        raise ValueError(f"Unsupported offload type: {load_type}")
     if hasattr(pipeline, "vae"):
         pipeline.vae.enable_slicing()
         pipeline.vae.enable_tiling()
