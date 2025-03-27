@@ -1,7 +1,7 @@
 ---
 ---
 
-# Command-Line Interface
+# CLI
 
 CogKit provides a powerful command-line interface (CLI) that allows you to perform various tasks without writing Python code. This guide covers the available commands and their usage.
 
@@ -44,14 +44,6 @@ See `cogkit inference --help` for more information.
 
 ## Launch Command
 
-The `launch` command starts an API server for image and video generation. Before using this command, you need to install the API dependencies:
-
-<!-- FIXME: check url -->
-```bash
-pip install "cogkit[api]@git+https://github.com/THUDM/CogKit.git"
-```
-
-<!-- FIXME: check url -->
 Before starting the server, make sure to configure the model paths that you want to serve. This step is necessary to specify which models will be available through the API server.
 
 To configure the model paths:

@@ -3,7 +3,6 @@
 
 # Dataset Format
 
-<!-- TODO: add link to data dir -->
 `CogKit/quickstart/data` directory contains various dataset templates for fine-tuning different models, please refer to the corresponding dataset template based on your task type:
 
 ## Text-to-Image Conversion Dataset (t2i)
@@ -26,18 +25,32 @@
 
 ## Image-to-Video (i2v)
 
-- Each directory contains video files (`.mp4`) and **optional** corresponding image files (`.png`)
-- The `metadata.jsonl` file contains metadata information for each sample
+- The dataset is organized with the following structure:
+  - `train/` and `test/` directories each containing:
+    - `videos/` directory for video files (`.mp4`)
+    - `images/` directory for input image files (`.png`)
+    - `metadata.jsonl` file in the root containing prompt descriptions
 
-    ```json
-    {"file_name": "example.mp4", "id": 0, "prompt": "Detailed video description text..."}
-    {"file_name": "example.png", "id": 0}  // optional
-    ```
+- The main `metadata.jsonl` file in the root directory contains prompt information for each sample:
+  ```json
+  {"id": 0, "prompt": "Detailed video description text..."}
+  {"id": 1, "prompt": "Detailed video description text..."}
+  ```
 
-    :::info
-  - Image files are optional; if not provided, the system will default to using the first frame of the video as the input image
-  - When image files are provided, they are associated with the video file of the same name through the id field
-    :::
+- The `videos/metadata.jsonl` file maps video files to their corresponding IDs:
+  ```json
+  {"file_name": "example.mp4", "id": 0}
+  ```
+
+- The `images/metadata.jsonl` file maps image files to their corresponding IDs:
+  ```json
+  {"file_name": "example.png", "id": 0}
+  ```
+
+:::info
+- Image and video files are linked by sharing the same ID
+- If image files are not provided, the system will default to using the first frame of the corresponding video as the input image
+:::
 
 ## Notes
 

@@ -4,8 +4,13 @@
 
 * Please refer to the [installation guide](../02-Installation.md) to setup your environment first
 
-<!-- FIXME: change to THUDM later -->
-* We provide various training scripts and example datasets in the `CogKit/quickstart` directory, so you need to clone our repository before training:
+* Install finetune dependencies:
+
+   ```bash
+   pip install "cogkit[finetune]@git+https://github.com/THUDM/CogKit.git"
+   ```
+
+* We provide various training scripts and example datasets in the `CogKit/quickstart` directory. Please clone the repository before training:
 
    ```bash
    git clone https://github.com/THUDM/CogKit.git
