@@ -67,6 +67,12 @@ def load_images_from_videos(videos_path: list[Path]) -> list[Path]:
 ##########  preprocessors  ##########
 
 
+def pil2tensor(image: Image.Image) -> torch.Tensor:
+    image = image.convert("RGB")
+    image = torch.from_numpy(np.array(image)).permute(2, 0, 1).float().contiguous()
+    return image
+
+
 def preprocess_image_with_resize(
     image: Image.Image,
     height: int,

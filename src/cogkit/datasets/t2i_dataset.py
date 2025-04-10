@@ -15,6 +15,7 @@ from .utils import (
     preprocess_image_with_resize,
     get_prompt_embedding,
     get_image_embedding,
+    pil2tensor,
 )
 
 if TYPE_CHECKING:
@@ -63,7 +64,6 @@ class BaseT2IDataset(Dataset):
         self.encode_image = trainer.encode_image
         self.trainer = trainer
 
-        self.to_tensor = transforms.ToTensor()
         self._image_transforms = transforms.Compose(
             [
                 transforms.Lambda(lambda x: x / 255.0 * 2.0 - 1.0),
@@ -123,7 +123,7 @@ class BaseT2IDataset(Dataset):
         Returns:
             - image(torch.Tensor) of shape [C, H, W]
         """
-        return self.to_tensor(image)
+        return pil2tensor(image)
 
     def image_transform(self, image: torch.Tensor) -> torch.Tensor:
         """
