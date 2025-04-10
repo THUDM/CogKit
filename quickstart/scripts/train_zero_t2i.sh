@@ -20,10 +20,6 @@ OUTPUT_ARGS=(
 # Data Configuration
 DATA_ARGS=(
     --data_root "/path/to/data"
-
-    # Note:
-    #   For CogView4 series models, height and width should be **32N** (multiple of 32)
-    --train_resolution "1024x1024"  # (height x width)
 )
 
 # Training Configuration
@@ -32,6 +28,9 @@ TRAIN_ARGS=(
     --train_epochs 1  # number of training epochs
 
     --learning_rate 2e-5
+
+    # Note: For CogView4 series models, height and width should be **32N** (multiple of 32)
+    --train_resolution "1024x1024"  # (height x width)
 
     #########   Please keep consistent with deepspeed config file ##########
     --batch_size 1
@@ -44,7 +43,7 @@ TRAIN_ARGS=(
 # System Configuration
 SYSTEM_ARGS=(
     --num_workers 8
-    --pin_memory True
+    --pin_memory true
     --nccl_timeout 1800
 )
 

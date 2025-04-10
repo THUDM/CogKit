@@ -4,44 +4,71 @@
 from typing import Any, Tuple
 
 import torch
+from PIL import Image
+from transformers import AutoTokenizer, BitsAndBytesConfig, GlmForCausalLM
+from typing_extensions import override
+
+from cogkit.finetune import register
+from cogkit.finetune.diffusion.schemas import DiffusionComponents
+from cogkit.finetune.diffusion.trainer import DiffusionTrainer
+from cogkit.finetune.utils import process_prompt_attention_mask, unwrap_model
+from cogkit.utils import load_lora_checkpoint, unload_lora_checkpoint
 from diffusers import (
     AutoencoderKL,
     CogView4Pipeline,
     CogView4Transformer2DModel,
     FlowMatchEulerDiscreteScheduler,
 )
-from PIL import Image
-from transformers import AutoTokenizer, GlmForCausalLM
-from typing_extensions import override
-
-from cogkit.finetune import register
-from cogkit.finetune.diffusion.schemas import DiffusionComponents
-from cogkit.finetune.diffusion.trainer import DiffusionTrainer
-from cogkit.finetune.utils import unwrap_model
 
 
 class Cogview4Trainer(DiffusionTrainer):
     UNLOAD_LIST = ["text_encoder", "vae"]
     MAX_TTOKEN_LENGTH = 224
+    NEGATIVE_PROMPT = ""
+    TEXT_TOKEN_FACTOR = 16
 
     @override
     def load_components(self) -> DiffusionComponents:
+        nf4_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+
         components = DiffusionComponents()
         model_path = str(self.args.model_path)
 
+        ### pipeline
         components.pipeline_cls = CogView4Pipeline
 
+        ### tokenizer
         components.tokenizer = AutoTokenizer.from_pretrained(model_path, subfolder="tokenizer")
 
+        ### text encoder
         components.text_encoder = GlmForCausalLM.from_pretrained(
-            model_path, subfolder="text_encoder"
+            model_path,
+            subfolder="text_encoder",
+            torch_dtype=torch.bfloat16,
         )
 
-        components.transformer = CogView4Transformer2DModel.from_pretrained(
-            model_path, subfolder="transformer"
-        )
+        ### transformer
+        if not self.args.low_vram:
+            components.transformer = CogView4Transformer2DModel.from_pretrained(
+                model_path, subfolder="transformer", torch_dtype=torch.bfloat16, device="cpu"
+            )
+        else:
+            components.transformer = CogView4Transformer2DModel.from_pretrained(
+                model_path,
+                subfolder="transformer",
+                torch_dtype=torch.bfloat16,
+                quantization_config=nf4_config,
+                device_map="auto",
+            )
 
-        components.vae = AutoencoderKL.from_pretrained(model_path, subfolder="vae")
+        components.vae = AutoencoderKL.from_pretrained(
+            model_path, subfolder="vae", torch_dtype=torch.bfloat16, device="cpu"
+        )
 
         components.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
             model_path, subfolder="scheduler"
@@ -49,43 +76,81 @@ class Cogview4Trainer(DiffusionTrainer):
         return components
 
     @override
-    def initialize_pipeline(self) -> CogView4Pipeline:
-        pipe = CogView4Pipeline(
-            tokenizer=self.components.tokenizer,
-            text_encoder=self.components.text_encoder,
-            vae=self.components.vae,
-            transformer=unwrap_model(self.accelerator, self.components.transformer),
-            scheduler=self.components.scheduler,
-        )
+    def initialize_pipeline(self, ckpt_path: str | None = None) -> CogView4Pipeline:
+        if not self.args.low_vram:
+            pipe = CogView4Pipeline(
+                tokenizer=self.components.tokenizer,
+                text_encoder=self.components.text_encoder,
+                vae=self.components.vae,
+                transformer=unwrap_model(self.accelerator, self.components.transformer),
+                scheduler=self.components.scheduler,
+            )
+        else:
+            assert self.args.training_type == "lora"
+            # using bf16 model rather than quantized ones
+            transformer = CogView4Transformer2DModel.from_pretrained(
+                str(self.args.model_path),
+                subfolder="transformer",
+                torch_dtype=torch.bfloat16,
+                device="cpu",
+            )
+            pipe = CogView4Pipeline(
+                tokenizer=self.components.tokenizer,
+                text_encoder=self.components.text_encoder,
+                vae=self.components.vae,
+                transformer=transformer,
+                scheduler=self.components.scheduler,
+            )
+            unload_lora_checkpoint(pipe)
+            load_lora_checkpoint(pipe, ckpt_path)
+
         return pipe
 
     @override
     def encode_text(self, prompt: str) -> torch.Tensor:
+        """
+        Note: For the GLM text encoder, the number of tokens should be a multiple of 16.
+        """
         prompt_token_ids = self.components.tokenizer(
             prompt,
-            padding="max_length",
+            padding=True,
             max_length=self.MAX_TTOKEN_LENGTH,
             truncation=True,
             add_special_tokens=True,
             return_tensors="pt",
+            pad_to_multiple_of=self.TEXT_TOKEN_FACTOR,
         ).input_ids
+
         prompt_embedding = self.components.text_encoder(
             prompt_token_ids.to(self.accelerator.device), output_hidden_states=True
         ).hidden_states[-2][0]
-        # shape of prompt_embedding: [sequence length(self.MAX_TTOKEN_LENGTH), embedding dimension(4096)]
+        # shape of prompt_embedding: [sequence length, embedding dimension(4096)]
         return prompt_embedding
+
+    @override
+    def get_negtive_prompt_embeds(self) -> torch.Tensor:
+        return self.encode_text(self.NEGATIVE_PROMPT)
 
     @override
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         vae = self.components.vae
-        image = image.to(vae.device, dtype=vae.dtype)
+        image = image.to(self.accelerator.device, dtype=vae.dtype)
         latent_dist = vae.encode(image).latent_dist
         latent = latent_dist.sample() * vae.config.scaling_factor
         return latent
 
     @override
     def collate_fn(self, samples: list[dict[str, Any]]) -> dict[str, Any]:
-        ret = {"prompt": [], "prompt_embedding": [], "image": [], "encoded_image": []}
+        """
+        This function assumes that all the images in samples have the same resolution.
+        """
+        ret = {
+            "prompt": [],
+            "prompt_embedding": [],
+            "image": [],
+            "encoded_image": [],
+            "attention_mask": {"text_embedding_attn_mask": None},
+        }
 
         for sample in samples:
             prompt = sample.get("prompt", None)
@@ -101,22 +166,24 @@ class Cogview4Trainer(DiffusionTrainer):
             if encoded_image is not None:
                 ret["encoded_image"].append(encoded_image)
 
-        ret["prompt_embedding"] = torch.stack(ret["prompt_embedding"])
+        prompt_embedding, prompt_attention_mask = process_prompt_attention_mask(
+            self.components.tokenizer,
+            ret["prompt"],
+            ret["prompt_embedding"],
+            self.MAX_TTOKEN_LENGTH,
+            self.TEXT_TOKEN_FACTOR,
+        )
+
+        ret["prompt_embedding"] = prompt_embedding
+        ret["attention_mask"]["text_embedding_attn_mask"] = prompt_attention_mask
+
         ret["encoded_image"] = torch.stack(ret["encoded_image"]) if ret["encoded_image"] else None
 
-        prompts = [sample["prompt"] for sample in samples if "prompt" in sample]
-        attention_mask = self.components.tokenizer(
-            prompts,
-            padding="max_length",
-            max_length=self.MAX_TTOKEN_LENGTH,
-            truncation=True,
-            add_special_tokens=True,
-            return_tensors="pt",
-        ).attention_mask
-        ret["attention_mask"] = attention_mask
-
-        # shape of prompt_embedding: [batch_size, max_sequence_length(self.MAX_TTOKEN_LENGTH), embedding_dim(4096)]
-        assert ret["attention_mask"].shape == ret["prompt_embedding"].shape[:2]
+        # shape of prompt_embedding: [batch_size, sequence_length, embedding_dim(4096)]
+        assert (
+            ret["attention_mask"]["text_embedding_attn_mask"].shape
+            == ret["prompt_embedding"].shape[:2]
+        )
 
         return ret
 
@@ -133,7 +200,7 @@ class Cogview4Trainer(DiffusionTrainer):
             (image_height // vae_scale_factor) * (image_width // vae_scale_factor)
         ) // (self.state.transformer_config.patch_size**2)
 
-        text_attention_mask = batch["attention_mask"].float()
+        attention_mask = batch["attention_mask"]
 
         # prepare timesteps
         m = (image_seq_len / self.components.scheduler.config.base_image_seq_len) ** 0.5
@@ -177,7 +244,7 @@ class Cogview4Trainer(DiffusionTrainer):
             target_size=target_size,
             crop_coords=crop_coords,
             return_dict=False,
-            attention_mask=text_attention_mask,
+            attention_mask=attention_mask,
         )[0]
 
         loss = torch.mean((noise_pred_cond - model_label) ** 2, dim=(1, 2, 3))
@@ -214,13 +281,16 @@ class Cogview4Trainer(DiffusionTrainer):
         Return the data that needs to be saved. For images, the data format is PIL
         """
         prompt = eval_data["prompt"]
-        _ = eval_data["prompt_embedding"]
+        prompt_embedding = eval_data["prompt_embedding"]
 
+        # FIXME
         image_generate = pipe(
             height=self.state.train_resolution[0],
             width=self.state.train_resolution[1],
-            prompt=prompt,
-            # prompt_embeds=prompt_embedding,
+            prompt_embeds=prompt_embedding,
+            negative_prompt_embeds=self.state.negative_prompt_embeds.unsqueeze(
+                0
+            ),  # Add batch dimension
             generator=self.state.generator,
         ).images[0]
         return [("text", prompt), ("image", image_generate)]

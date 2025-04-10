@@ -19,10 +19,12 @@ from .lora_trainer import Cogview4Trainer
 
 class Cogview4LoraPackingTrainer(Cogview4Trainer):
     DOWNSAMPLER_FACTOR = 8
+    PATCH_SIZE = None
 
     @override
     def _init_state(self) -> DiffusionState:
         patch_size = self.components.transformer.config.patch_size
+        self.PATCH_SIZE = patch_size
         height, width = self.args.train_resolution
         sample_height, sample_width = (
             height // self.DOWNSAMPLER_FACTOR,
@@ -47,7 +49,7 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         assert prompt_embedding.ndim == 2
         num_channels, latent_height, latent_width = image_latent.shape
 
-        patch_size = self.components.transformer.config.patch_size
+        patch_size = self.PATCH_SIZE
         paded_width = latent_width + latent_width % patch_size
         paded_height = latent_height + latent_height % patch_size
         latent_length = paded_height * paded_width // patch_size**2
@@ -55,7 +57,12 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
             raise ValueError(
                 f"latent_length {latent_length} is greater than max_vtoken_length {self.state.max_vtoken_length}, "
                 f"which means there is at least one sample in the batch has resolution greater than "
-                f"{self.args.train_resolution[0]}x{self.args.train_resolution[1]}"
+                f"{self.args.train_resolution[0]}x{self.args.train_resolution[1]} "
+                f"({self.args.train_resolution[0] * self.args.train_resolution[1]} pixels)."
+                "Recommended solutions:\n"
+                "    1. Manually resize images that exceed the maximum pixels.\n"
+                "    2. Increase the train_resolution in your configuration.\n"
+                "    3. Disable packing by setting `--enable_packing false` in your training arguments."
             )
 
         assert (
@@ -80,17 +87,23 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
                 "latent_embedding_attn_mask": None,
             },
             "pixel_mask": None,
+            "original_size": None,
         }
+        batch_flag = [[idx] * len(slist["prompt"]) for idx, slist in enumerate(samples)]
+        batch_flag = sum(batch_flag, [])
+        batch_flag = torch.tensor(batch_flag, dtype=torch.int32)
         samples = expand_list(samples)
+        assert len(batch_flag) == len(samples["prompt"])
 
         prompt_embedding, prompt_attention_mask = process_prompt_attention_mask(
             self.components.tokenizer,
             samples["prompt"],
             samples["prompt_embedding"],
             self.MAX_TTOKEN_LENGTH,
+            self.TEXT_TOKEN_FACTOR,
         )
 
-        patch_size = self.components.transformer.config.patch_size
+        patch_size = self.PATCH_SIZE
         padded_latent, vtoken_attention_mask, pixel_mask = process_latent_attention_mask(
             samples["encoded_image"], patch_size
         )
@@ -99,14 +112,19 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         batched_data["prompt_embedding"] = prompt_embedding
         batched_data["attention_mask"]["text_embedding_attn_mask"] = prompt_attention_mask
         batched_data["encoded_image"] = padded_latent
-        batched_data["attention_mask"]["latent_embedding_attn_mask"] = vtoken_attention_mask
+        batched_data["attention_mask"]["latent_embedding_attn_mask"] = (
+            vtoken_attention_mask.reshape(len(batch_flag), -1)
+        )
         batched_data["pixel_mask"] = pixel_mask
+
+        batched_data["attention_mask"]["batch_flag"] = batch_flag
+        batched_data["original_size"] = torch.tensor([img.size for img in samples["image"]])
 
         return batched_data
 
     @override
     def compute_loss(self, batch: dict[str, Any]) -> torch.Tensor:
-        patch_size = self.components.transformer.config.patch_size
+        dtype = self.state.weight_dtype
         prompt_embeds = batch["prompt_embedding"]
         latent = batch["encoded_image"]
         batch_size, text_seqlen, text_embedding_dim = prompt_embeds.shape
@@ -114,29 +132,10 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
 
         attn_mask = batch["attention_mask"]
         latent_attention_mask = attn_mask["latent_embedding_attn_mask"].float()
-        latent_attention_mask_1d = latent_attention_mask.reshape(batch_size, -1)
-        vtoken_seq_len = torch.sum(latent_attention_mask_1d != -1, dim=1)
-        latent_shape = []
+        assert latent_attention_mask.dim() == 2
+        vtoken_seq_len = torch.sum(latent_attention_mask != 0, dim=1)
 
-        for i, data in enumerate(latent_attention_mask):
-            row_indices = torch.where(data[:, 0] == -1)[0]
-            if len(row_indices) > 0:
-                num_rows = row_indices[0].item()
-            else:
-                num_rows = data.shape[0]
-
-            col_indices = torch.where(data[0, :] == -1)[0]
-            if len(col_indices) > 0:
-                num_cols = col_indices[0].item()
-            else:
-                num_cols = data.shape[1]
-            latent_shape.append((num_rows, num_cols))
-        latent_shape = torch.tensor(latent_shape)
-        original_shape = latent_shape * self.DOWNSAMPLER_FACTOR * patch_size
-        assert torch.equal(
-            vtoken_seq_len.cpu(),
-            torch.prod((original_shape / (self.DOWNSAMPLER_FACTOR * patch_size)), dim=1),
-        )
+        original_size = batch["original_size"]
 
         # prepare sigmas
         scheduler = self.components.scheduler
@@ -162,26 +161,18 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
             device=self.accelerator.device,
         )
 
-        noise = torch.randn_like(latent)
+        noise = torch.randn_like(latent, dtype=dtype)
         model_input, model_label = self.add_noise(latent, noise, timestep)
-        original_size = torch.tensor(
-            original_shape,
-            dtype=latent.dtype,
-            device=self.accelerator.device,
-        )
-        target_size = torch.tensor(
-            original_shape,
-            dtype=latent.dtype,
-            device=self.accelerator.device,
-        )
+        original_size = original_size.to(dtype=dtype, device=self.accelerator.device)
+        target_size = original_size.clone().to(dtype=dtype, device=self.accelerator.device)
         crop_coords = torch.tensor(
-            [[0, 0] for _ in range(batch_size)], dtype=latent.dtype, device=self.accelerator.device
+            [[0, 0] for _ in range(batch_size)], dtype=dtype, device=self.accelerator.device
         )
 
         # FIXME: add attn support for cogview4 transformer
         noise_pred_cond = self.components.transformer(
-            hidden_states=model_input,
-            encoder_hidden_states=prompt_embeds,
+            hidden_states=model_input.to(dtype=dtype),
+            encoder_hidden_states=prompt_embeds.to(dtype=dtype),
             timestep=timestep,
             original_size=original_size,
             target_size=target_size,
@@ -191,9 +182,8 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         )[0]
 
         pixel_mask = batch["pixel_mask"]
-        pixel_mask[pixel_mask == 0] = 1
-        pixel_mask[pixel_mask == -1] = 0
-        loss = torch.mean(((noise_pred_cond - model_label) ** 2) * pixel_mask, dim=(1, 2, 3))
+        loss = torch.sum(((noise_pred_cond - model_label) ** 2) * pixel_mask, dim=(1, 2, 3))
+        loss = loss / torch.sum(pixel_mask, dim=(1, 2, 3))
         loss = loss.mean()
 
         return loss

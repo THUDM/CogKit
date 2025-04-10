@@ -3,9 +3,8 @@ from typing import Any
 
 import torch
 import wandb
-from accelerate.utils import (
-    gather_object,
-)
+from accelerate import cpu_offload
+from accelerate.utils import gather_object
 from PIL import Image
 from typing_extensions import override
 
@@ -74,8 +73,8 @@ class DiffusionTrainer(BaseTrainer):
             case "t2i":
                 from cogkit.datasets import (
                     BaseT2IDataset,
-                    T2IDatasetWithResize,
                     T2IDatasetWithPacking,
+                    T2IDatasetWithResize,
                 )
 
                 dataset_cls = T2IDatasetWithResize
@@ -103,18 +102,19 @@ class DiffusionTrainer(BaseTrainer):
                 using_train=False,
             )
 
-        # Prepare VAE and text encoder for encoding
+        ### Prepare VAE and text encoder for encoding
         self.components.vae.requires_grad_(False)
         self.components.text_encoder.requires_grad_(False)
-        self.components.vae = self.components.vae.to(
-            self.accelerator.device, dtype=self.state.weight_dtype
-        )
-        self.components.text_encoder = self.components.text_encoder.to(
-            self.accelerator.device, dtype=self.state.weight_dtype
-        )
+        self.components.vae.to(self.accelerator.device, dtype=self.state.weight_dtype)
+        if self.args.low_vram:  # offload text encoder to CPU
+            cpu_offload(self.components.text_encoder, self.accelerator.device)
+        else:
+            self.components.text_encoder.to(self.accelerator.device, dtype=self.state.weight_dtype)
 
-        # Precompute latent for video and prompt embedding
-        self.logger.info("Precomputing latent for video and prompt embedding ...")
+        ### Precompute embedding
+        self.logger.info("Precomputing embedding ...")
+        self.state.negative_prompt_embeds = self.get_negtive_prompt_embeds()
+
         for dataset in [self.train_dataset, self.test_dataset]:
             if dataset is None:
                 continue
@@ -130,10 +130,11 @@ class DiffusionTrainer(BaseTrainer):
                 ...
 
         self.accelerator.wait_for_everyone()
-        self.logger.info("Precomputing latent for video and prompt embedding ... Done")
+        self.logger.info("Precomputing embedding ... Done")
 
         unload_model(self.components.vae)
-        unload_model(self.components.text_encoder)
+        if not self.args.low_vram:
+            unload_model(self.components.text_encoder)
         free_memory()
 
         if not self.args.enable_packing:
@@ -172,7 +173,7 @@ class DiffusionTrainer(BaseTrainer):
             )
 
     @override
-    def validate(self, step: int) -> None:
+    def validate(self, step: int, ckpt_path: str | None = None) -> None:
         # TODO: refactor later
         self.logger.info("Starting validation")
 
@@ -192,18 +193,23 @@ class DiffusionTrainer(BaseTrainer):
         )
 
         #####  Initialize pipeline  #####
-        pipe = self.initialize_pipeline()
+        pipe = self.initialize_pipeline(ckpt_path=ckpt_path)
 
         if self.state.using_deepspeed:
             # Can't using model_cpu_offload in deepspeed,
             # so we need to move all components in pipe to device
             self.move_components_to_device(
-                dtype=self.state.weight_dtype, ignore_list=["transformer"]
+                dtype=self.state.weight_dtype,
+                device=self.accelerator.device,
+                ignore_list=["transformer"],
             )
         else:
             # if not using deepspeed, use model_cpu_offload to further reduce memory usage
             # Or use pipe.enable_sequential_cpu_offload() to further reduce memory usage
-            pipe.enable_model_cpu_offload(device=self.accelerator.device)
+            if self.args.low_vram:
+                pipe.enable_sequential_cpu_offload(device=self.accelerator.device)
+            else:
+                pipe.enable_model_cpu_offload(device=self.accelerator.device)
 
             # Convert all model weights to training dtype
             # Note, this will change LoRA weights in self.components.transformer to training dtype, rather than keep them in fp32
@@ -321,13 +327,17 @@ class DiffusionTrainer(BaseTrainer):
         if self.state.using_deepspeed:
             del pipe
             # Unload models except those needed for training
-            self.move_components_to_cpu(unload_list=self.UNLOAD_LIST)
+            self.move_components_to_device(
+                dtype=self.state.weight_dtype, device="cpu", ignore_list=self.UNLOAD_LIST
+            )
         else:
             pipe.remove_all_hooks()
             del pipe
             # Load models except those not needed for training
             self.move_components_to_device(
-                dtype=self.state.weight_dtype, ignore_list=self.UNLOAD_LIST
+                dtype=self.state.weight_dtype,
+                device=self.accelerator.device,
+                ignore_list=self.UNLOAD_LIST,
             )
             self.components.transformer.to(self.accelerator.device, dtype=self.state.weight_dtype)
 
@@ -356,11 +366,15 @@ class DiffusionTrainer(BaseTrainer):
     def collate_fn(self, samples: list[dict[str, Any]]):
         raise NotImplementedError
 
-    def initialize_pipeline(self) -> DiffusionPipeline:
+    def initialize_pipeline(self, ckpt_path: str | None = None) -> DiffusionPipeline:
         raise NotImplementedError
 
     def encode_text(self, text: str) -> torch.Tensor:
-        # shape of output text: [batch size, sequence length, embedding dimension]
+        # shape of output text: [sequence length, embedding dimension]
+        raise NotImplementedError
+
+    def get_negtive_prompt_embeds(self) -> torch.Tensor:
+        # shape of output text: [sequence length, embedding dimension]
         raise NotImplementedError
 
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
