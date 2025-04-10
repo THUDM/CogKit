@@ -20,11 +20,6 @@ OUTPUT_ARGS=(
 # Data Configuration
 DATA_ARGS=(
     --data_root "/path/to/data"
-
-    # Note:
-    #  for CogVideoX series models, number of training frames should be **8N+1**
-    #  for CogVideoX1.5 series models, number of training frames should be **16N+1**
-    --train_resolution "81x768x1360"  # (frames x height x width)
 )
 
 # Training Configuration
@@ -39,12 +34,18 @@ TRAIN_ARGS=(
     --gradient_accumulation_steps 1
     --mixed_precision "bf16"  # ["no", "fp16"]  Note: CogVideoX-2B only supports fp16 training
     ########################################################################
+
+    # Note:
+    #  for CogVideoX series models, number of training frames should be **8N+1**
+    #  for CogVideoX1.5 series models, number of training frames should be **16N+1**
+    --train_resolution "81x768x1360"  # (frames x height x width)
+
 )
 
 # System Configuration
 SYSTEM_ARGS=(
     --num_workers 8
-    --pin_memory True
+    --pin_memory true
     --nccl_timeout 1800
 )
 

@@ -179,7 +179,9 @@ class BaseTrainer(ABC):
 
         # Load components needed for training to GPU (except transformer), and cast them to the specified data type
         ignore_list = ["transformer"] + self.UNLOAD_LIST
-        self.move_components_to_device(dtype=weight_dtype, ignore_list=ignore_list)
+        self.move_components_to_device(
+            dtype=weight_dtype, device=self.accelerator.device, ignore_list=ignore_list
+        )
 
         if self.args.gradient_checkpointing:
             self.components.transformer.enable_gradient_checkpointing()
@@ -338,6 +340,7 @@ class BaseTrainer(ABC):
         self.state.generator = generator
 
         free_memory()
+        ckpt_path = None
         for epoch in range(first_epoch, self.args.train_epochs):
             self.logger.debug(f"Starting epoch ({epoch + 1}/{self.args.train_epochs})")
 
@@ -377,7 +380,7 @@ class BaseTrainer(ABC):
                 if accelerator.sync_gradients:
                     progress_bar.update(1)
                     global_step += 1
-                    self.maybe_save_checkpoint(global_step)
+                    ckpt_path = self.maybe_save_checkpoint(global_step)
 
                 logs["loss"] = loss.detach().item()
                 logs["lr"] = self.lr_scheduler.get_last_lr()[0]
@@ -385,12 +388,14 @@ class BaseTrainer(ABC):
 
                 # Maybe run validation
                 should_run_validation = (
-                    self.args.do_validation and global_step % self.args.validation_steps == 0
+                    self.args.do_validation
+                    and global_step % self.args.validation_steps == 0
+                    and accelerator.sync_gradients
                 )
                 if should_run_validation:
                     del loss
                     free_memory()
-                    self.validate(global_step)
+                    self.validate(global_step, ckpt_path=ckpt_path)
 
                 accelerator.log(logs, step=global_step)
 
@@ -403,10 +408,10 @@ class BaseTrainer(ABC):
             )
 
         accelerator.wait_for_everyone()
-        self.maybe_save_checkpoint(global_step, must_save=True)
+        ckpt_path = self.maybe_save_checkpoint(global_step, must_save=True)
         if self.args.do_validation:
             free_memory()
-            self.validate(global_step)
+            self.validate(global_step, ckpt_path=ckpt_path)
 
         del self.components
         free_memory()
@@ -470,7 +475,7 @@ class BaseTrainer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def validate(self, step: int) -> None:
+    def validate(self, step: int, ckpt_path: str | None = None) -> None:
         # validation logic defined here
         # during validation, additional modules in the pipeline may need to be moved to GPU memory
         raise NotImplementedError
@@ -485,7 +490,7 @@ class BaseTrainer(ABC):
         else:
             raise ValueError(f"Invalid mixed precision: {self.args.mixed_precision}")
 
-    def move_components_to_device(self, dtype, ignore_list: list[str] = []):
+    def move_components_to_device(self, dtype, device, ignore_list: list[str] = []):
         ignore_list = set(ignore_list)
         components = self.components.model_dump()
         for name, component in components.items():
@@ -494,16 +499,8 @@ class BaseTrainer(ABC):
                     setattr(
                         self.components,
                         name,
-                        component.to(self.accelerator.device, dtype=dtype),
+                        component.to(device, dtype=dtype),
                     )
-
-    def move_components_to_cpu(self, unload_list: list[str] = []):
-        unload_list = set(unload_list)
-        components = self.components.model_dump()
-        for name, component in components.items():
-            if not isinstance(component, type) and hasattr(component, "to"):
-                if name in unload_list:
-                    setattr(self.components, name, component.to("cpu"))
 
     def prepare_saving_loading_hooks(self, transformer_lora_config):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
@@ -570,7 +567,8 @@ class BaseTrainer(ABC):
         self.accelerator.register_save_state_pre_hook(save_model_hook)
         self.accelerator.register_load_state_pre_hook(load_model_hook)
 
-    def maybe_save_checkpoint(self, global_step: int, must_save: bool = False):
+    def maybe_save_checkpoint(self, global_step: int, must_save: bool = False) -> str | None:
+        save_path = None
         if (
             self.accelerator.distributed_type == DistributedType.DEEPSPEED
             or self.accelerator.is_main_process
@@ -584,3 +582,4 @@ class BaseTrainer(ABC):
                     logger=self.logger,
                 )
                 self.accelerator.save_state(save_path, safe_serialization=True)
+        return save_path

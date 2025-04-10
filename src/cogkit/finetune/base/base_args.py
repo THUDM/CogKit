@@ -37,6 +37,7 @@ class BaseArgs(BaseModel):
     gradient_accumulation_steps: int = 1
 
     mixed_precision: Literal["no", "fp16", "bf16"]
+    low_vram: bool = False
 
     learning_rate: float = 2e-5
     optimizer: str = "adamw"
@@ -66,6 +67,12 @@ class BaseArgs(BaseModel):
     ########## Validation ##########
     do_validation: bool = False
     validation_steps: int | None  # if set, should be a multiple of checkpointing_steps
+
+    @field_validator("low_vram")
+    def validate_low_vram(cls, v: bool, info: ValidationInfo) -> bool:
+        if v and info.data.get("training_type") != "lora":
+            raise ValueError("low_vram can only be True when training_type is 'lora'")
+        return v
 
     @field_validator("validation_steps")
     def validate_validation_steps(cls, v: int | None, info: ValidationInfo) -> int | None:
@@ -121,11 +128,14 @@ class BaseArgs(BaseModel):
 
         # Data loading
         parser.add_argument("--num_workers", type=int, default=8)
-        parser.add_argument("--pin_memory", type=bool, default=True)
+        parser.add_argument("--pin_memory", type=lambda x: x.lower() == "true", default=True)
 
         # Model configuration
         parser.add_argument("--mixed_precision", type=str, default="no")
-        parser.add_argument("--gradient_checkpointing", type=bool, default=True)
+        parser.add_argument("--low_vram", type=lambda x: x.lower() == "true", default=False)
+        parser.add_argument(
+            "--gradient_checkpointing", type=lambda x: x.lower() == "true", default=True
+        )
         parser.add_argument("--nccl_timeout", type=int, default=1800)
 
         # LoRA parameters

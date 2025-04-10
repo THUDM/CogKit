@@ -68,7 +68,7 @@ class DiffusionArgs(BaseArgs):
         parser.add_argument("--enable_tiling", action="store_true")
 
         # Packing
-        parser.add_argument("--enable_packing", action="store_true")
+        parser.add_argument("--enable_packing", type=lambda x: x.lower() == "true", default=False)
 
         # Validation
         parser.add_argument("--gen_fps", type=int, default=15)

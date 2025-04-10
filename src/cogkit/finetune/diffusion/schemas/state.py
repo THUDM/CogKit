@@ -4,6 +4,8 @@
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from cogkit.finetune.base import BaseState
 
 
@@ -21,3 +23,5 @@ class DiffusionState(BaseState):
     validation_prompts: list[str] = []
     validation_images: list[Path | None] = []
     validation_videos: list[Path | None] = []
+
+    negative_prompt_embeds: torch.Tensor | None = None

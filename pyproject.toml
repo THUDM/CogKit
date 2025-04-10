@@ -33,6 +33,7 @@ finetune = [
   "datasets~=3.4",
   "deepspeed~=0.16.4",
   "av~=14.2.0",
+  "bitsandbytes~=0.45.4",
 ]
 
 [project.urls]
