@@ -1,3 +1,4 @@
+import math
 from typing import List, Tuple
 
 import torch
@@ -90,8 +91,8 @@ def process_latent_attention_mask(
     max_latent_width = max([img.shape[2] for img in encoded_images])
 
     # Ensure dimensions are divisible by patch_size
-    max_latent_height += max_latent_height % patch_size
-    max_latent_width += max_latent_width % patch_size
+    max_latent_height = math.ceil(max_latent_height / patch_size) * patch_size
+    max_latent_width = math.ceil(max_latent_width / patch_size) * patch_size
 
     # Create padded latent tensor and pixel mask
     padded_latent = torch.zeros(
