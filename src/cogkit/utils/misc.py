@@ -2,6 +2,7 @@
 
 
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
@@ -111,3 +112,83 @@ def guess_generation_mode(
         )
 
     return GenerationMode.TextToVideo
+
+
+def flatten_dict(d: dict[str, Any], ignore_none: bool = False) -> dict[str, Any]:
+    """
+    Flattens a nested dictionary into a single layer dictionary.
+
+    Args:
+        d: The dictionary to flatten
+        ignore_none: If True, keys with None values will be omitted
+
+    Returns:
+        A flattened dictionary
+
+    Raises:
+        ValueError: If there are duplicate keys across nested dictionaries
+
+    Examples:
+        >>> flatten_dict({"a": 1, "b": {"c": 2, "d": {"e": 3}}, "f": None})
+        {"a": 1, "c": 2, "e": 3, "f": None}
+
+        >>> flatten_dict({"a": 1, "b": {"c": 2, "d": {"e": 3}}, "f": None}, ignore_none=True)
+        {"a": 1, "c": 2, "e": 3}
+
+        >>> flatten_dict({"a": 1, "b": {"a": 2}})
+        ValueError: Duplicate key 'a' found in nested dictionary
+    """
+    result = {}
+
+    def _flatten(current_dict, result_dict):
+        for key, value in current_dict.items():
+            if value is None and ignore_none:
+                continue
+
+            if isinstance(value, dict):
+                _flatten(value, result_dict)
+            else:
+                if key in result_dict:
+                    raise ValueError(f"Duplicate key '{key}' found in nested dictionary")
+                result_dict[key] = value
+
+    _flatten(d, result)
+    return result
+
+
+def expand_list(dicts: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    """
+    Converts a list of dictionaries into a dictionary of lists.
+
+    For each key in the dictionaries, collects all values corresponding to that key
+    into a list.
+
+    Args:
+        dicts: A list of dictionaries
+
+    Returns:
+        A dictionary where each key maps to a list of values from the input dictionaries
+
+    Examples:
+        >>> expand_list([{"a": 1, "b": 2}, {"a": 3, "b": 4, "c": 5}])
+        {"a": [1, 3], "b": [2, 4], "c": [5]}
+
+        >>> expand_list([{"x": "value1"}, {"y": "value2"}, {"x": "value3"}])
+        {"x": ["value1", "value3"], "y": ["value2"]}
+
+        >>> expand_list([{"x": ["value1", "value2"]}, {"y": "value3"}, {"x": ["value4"]}])
+        {"x": ["value1", "value2", "value4"], "y": ["value3"]}
+    """
+    result = {}
+
+    for d in dicts:
+        for key, value in d.items():
+            if key not in result:
+                result[key] = []
+
+            if isinstance(value, list):
+                result[key].extend(value)
+            else:
+                result[key].append(value)
+
+    return result
