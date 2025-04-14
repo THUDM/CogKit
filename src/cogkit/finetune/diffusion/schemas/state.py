@@ -17,7 +17,6 @@ class DiffusionState(BaseState):
     train_resolution: tuple[int, int, int] | tuple[int, int]
 
     # packing realted
-    max_vtoken_length: int | None = None
     training_seq_length: int | None = None
 
     validation_prompts: list[str] = []

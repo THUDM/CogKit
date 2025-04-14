@@ -12,37 +12,66 @@ from diffusers import (
 )
 from diffusers.models.embeddings import get_3d_rotary_pos_embed
 from PIL import Image
-from transformers import AutoTokenizer, T5EncoderModel
+from transformers import AutoTokenizer, T5EncoderModel, BitsAndBytesConfig
 from typing_extensions import override
 
 from cogkit.finetune import register
 from cogkit.finetune.diffusion.schemas import DiffusionComponents
 from cogkit.finetune.diffusion.trainer import DiffusionTrainer
 from cogkit.finetune.utils import unwrap_model
+from cogkit.utils import load_lora_checkpoint, unload_lora_checkpoint
 
 
 class CogVideoXT2VLoraTrainer(DiffusionTrainer):
     UNLOAD_LIST = ["text_encoder", "vae"]
+    NEGATIVE_PROMPT = ""
 
     @override
     def load_components(self) -> DiffusionComponents:
+        nf4_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+        dtype = self.state.weight_dtype
+
         components = DiffusionComponents()
         model_path = str(self.args.model_path)
 
+        ### pipeline
         components.pipeline_cls = CogVideoXPipeline
 
+        ### tokenizer
         components.tokenizer = AutoTokenizer.from_pretrained(model_path, subfolder="tokenizer")
 
+        ### text encoder
         components.text_encoder = T5EncoderModel.from_pretrained(
-            model_path, subfolder="text_encoder"
+            model_path, subfolder="text_encoder", torch_dtype=dtype
         )
 
-        components.transformer = CogVideoXTransformer3DModel.from_pretrained(
-            model_path, subfolder="transformer"
+        ### transformer
+        if not self.args.low_vram:
+            components.transformer = CogVideoXTransformer3DModel.from_pretrained(
+                model_path,
+                subfolder="transformer",
+                torch_dtype=dtype,
+            )
+        else:
+            components.transformer = CogVideoXTransformer3DModel.from_pretrained(
+                model_path,
+                subfolder="transformer",
+                quantization_config=nf4_config,
+                device=self.accelerator.device,
+                torch_dtype=dtype,
+            )
+
+        ### vae
+        components.vae = AutoencoderKLCogVideoX.from_pretrained(
+            model_path, subfolder="vae", torch_dtype=dtype
         )
 
-        components.vae = AutoencoderKLCogVideoX.from_pretrained(model_path, subfolder="vae")
-
+        ### scheduler
         components.scheduler = CogVideoXDPMScheduler.from_pretrained(
             model_path, subfolder="scheduler"
         )
@@ -50,14 +79,31 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
         return components
 
     @override
-    def initialize_pipeline(self) -> CogVideoXPipeline:
-        pipe = CogVideoXPipeline(
-            tokenizer=self.components.tokenizer,
-            text_encoder=self.components.text_encoder,
-            vae=self.components.vae,
-            transformer=unwrap_model(self.accelerator, self.components.transformer),
-            scheduler=self.components.scheduler,
-        )
+    def initialize_pipeline(self, ckpt_path: str | None = None) -> CogVideoXPipeline:
+        if not self.args.low_vram:
+            pipe = CogVideoXPipeline(
+                tokenizer=self.components.tokenizer,
+                text_encoder=self.components.text_encoder,
+                vae=self.components.vae,
+                transformer=unwrap_model(self.accelerator, self.components.transformer),
+                scheduler=self.components.scheduler,
+            )
+        else:
+            assert self.args.training_type == "lora"
+            transformer = CogVideoXTransformer3DModel.from_pretrained(
+                str(self.args.model_path),
+                subfolder="transformer",
+                torch_dtype=self.state.weight_dtype,
+            )
+            pipe = CogVideoXPipeline(
+                tokenizer=self.components.tokenizer,
+                text_encoder=self.components.text_encoder,
+                vae=self.components.vae,
+                transformer=transformer,
+                scheduler=self.components.scheduler,
+            )
+            unload_lora_checkpoint(pipe)
+            load_lora_checkpoint(pipe, ckpt_path)
         return pipe
 
     @override
@@ -87,6 +133,10 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
         # shape of prompt_embedding: [seq_len, hidden_size]
         assert prompt_embedding.ndim == 2
         return prompt_embedding
+
+    @override
+    def get_negtive_prompt_embeds(self) -> torch.Tensor:
+        return self.encode_text(self.NEGATIVE_PROMPT)
 
     @override
     def collate_fn(self, samples: list[dict[str, Any]]) -> dict[str, Any]:
@@ -193,11 +243,7 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
     @override
     def validation_step(
         self, eval_data: dict[str, Any], pipe: CogVideoXPipeline
-    ) -> list[tuple[str, Image.Image | list[Image.Image]]]:
-        """
-        Return the data that needs to be saved. For videos, the data format is List[PIL],
-        and for images, the data format is PIL
-        """
+    ) -> dict[str, str | list[Image.Image]]:
         prompt = eval_data["prompt"]
         prompt_embedding = eval_data["prompt_embedding"]
 
@@ -206,9 +252,10 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
             height=self.state.train_resolution[1],
             width=self.state.train_resolution[2],
             prompt_embeds=prompt_embedding,
+            negative_prompt_embeds=self.get_negtive_prompt_embeds().unsqueeze(0),
             generator=self.state.generator,
         ).frames[0]
-        return [("text", prompt), ("video", video_generate)]
+        return {"text": prompt, "video": video_generate}
 
     def prepare_rotary_positional_embeddings(
         self,

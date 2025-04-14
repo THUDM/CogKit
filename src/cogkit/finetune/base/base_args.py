@@ -48,8 +48,8 @@ class BaseArgs(BaseModel):
     weight_decay: float = 1e-4
     max_grad_norm: float = 1.0
 
-    lr_scheduler: str = "constant_with_warmup"
-    lr_warmup_steps: int = 100
+    lr_scheduler: str = "linear"
+    lr_warmup_ratio: float = 0.01
     lr_num_cycles: int = 1
     lr_power: float = 1.0
 
@@ -121,8 +121,8 @@ class BaseArgs(BaseModel):
         parser.add_argument("--max_grad_norm", type=float, default=1.0)
 
         # Learning rate scheduler
-        parser.add_argument("--lr_scheduler", type=str, default="constant_with_warmup")
-        parser.add_argument("--lr_warmup_steps", type=int, default=100)
+        parser.add_argument("--lr_scheduler", type=str, default="linear")
+        parser.add_argument("--lr_warmup_ratio", type=float, default=0.01)
         parser.add_argument("--lr_num_cycles", type=int, default=1)
         parser.add_argument("--lr_power", type=float, default=1.0)
 

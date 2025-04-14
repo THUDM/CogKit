@@ -1,21 +1,23 @@
-import torchvision.transforms as transforms
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
-from PIL import Image
 
 import torch
+import torchvision.transforms as transforms
 from accelerate.logging import get_logger
 from datasets import load_dataset
+from PIL import Image
 from torch.utils.data import Dataset
 from typing_extensions import override
 
 from cogkit.finetune.diffusion.constants import LOG_LEVEL, LOG_NAME
 
 from .utils import (
-    preprocess_image_with_resize,
-    get_prompt_embedding,
     get_image_embedding,
+    get_prompt_embedding,
     pil2tensor,
+    preprocess_image_with_resize,
+    calculate_resize_dimensions,
 )
 
 if TYPE_CHECKING:
@@ -122,6 +124,8 @@ class BaseT2IDataset(Dataset):
 
         Returns:
             - image(torch.Tensor) of shape [C, H, W]
+
+        **Note**: The value of returned image tensor should be the float value in the range of 0 ~ 255(rather than 0 ~ 1).
         """
         return pil2tensor(image)
 
@@ -171,6 +175,55 @@ class T2IDatasetWithResize(BaseT2IDataset):
         return image
 
 
+class T2IDatasetWithFactorResize(BaseT2IDataset):
+    """
+    A dataset class that resizes images to dimensions that are multiples of a specified factor.
+
+    If the image dimensions are not divisible by the factor, the image is resized
+    to the nearest larger dimensions that are divisible by the factor.
+
+    Args:
+        factor (int): The factor that image dimensions should be divisible by
+    """
+
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.factor = self.trainer.IMAGE_FACTOR
+
+    @override
+    def preprocess(
+        self,
+        image: Image.Image,
+        device: torch.device = torch.device("cpu"),
+    ) -> torch.Tensor:
+        """
+        Preprocesses an image by resizing it to dimensions that are multiples of self.factor.
+
+        Args:
+            image: PIL.Image.Image object
+            device: Device to load the data on
+
+        Returns:
+            torch.Tensor: Processed image tensor of shape [C, H, W]
+        """
+        # Get original dimensions
+        width, height = image.size
+        maxpixels = self.trainer.state.train_resolution[0] * self.trainer.state.train_resolution[1]
+        new_height, new_width = calculate_resize_dimensions(height, width, maxpixels)
+
+        # Calculate nearest multiples of factor (rounding down)
+        new_height = math.floor(new_height / self.factor) * self.factor
+        new_width = math.floor(new_width / self.factor) * self.factor
+
+        assert new_height > 0 and new_width > 0, "Have image with height or width <= self.factor"
+
+        return preprocess_image_with_resize(image, new_height, new_width, device)
+
+
 class T2IDatasetWithPacking(Dataset):
     """
     This dataset class packs multiple samples from a base Text-to-Image dataset.
@@ -179,13 +232,15 @@ class T2IDatasetWithPacking(Dataset):
 
     def __init__(
         self,
-        base_dataset: BaseT2IDataset,
+        base_dataset: T2IDatasetWithFactorResize,
         *args,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
 
-        assert type(base_dataset) is BaseT2IDataset  # should literally be a BaseT2IDataset
+        # base_dataset should be a T2IDatasetWithFactorResize
+        assert type(base_dataset) is T2IDatasetWithFactorResize
+
         self.base_dataset = base_dataset
 
     def __getitem__(self, index: list[int]) -> dict[str, Any]:
