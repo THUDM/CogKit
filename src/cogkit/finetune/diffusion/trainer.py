@@ -10,11 +10,11 @@ from typing_extensions import override
 
 from cogkit.finetune.base import BaseTrainer
 from cogkit.samplers import NaivePackingSampler
+from cogkit.utils import expand_list
 from diffusers.pipelines import DiffusionPipeline
 from diffusers.utils.export_utils import export_to_video
 
 from ..utils import (
-    cast_training_params,
     free_memory,
     get_memory_statistics,
     unload_model,
@@ -52,38 +52,36 @@ class DiffusionTrainer(BaseTrainer):
 
     @override
     def prepare_dataset(self) -> None:
-        # TODO: refactor later
-        match self.args.model_type:
-            case "i2v":
-                from cogkit.datasets import BaseI2VDataset, I2VDatasetWithResize
+        if self.args.model_type == "i2v":
+            from cogkit.datasets import BaseI2VDataset, I2VDatasetWithResize
 
-                dataset_cls = I2VDatasetWithResize
-                if self.args.enable_packing:
-                    dataset_cls = BaseI2VDataset
-                    raise NotImplementedError("Packing for I2V is not implemented")
+            dataset_cls = I2VDatasetWithResize
+            if self.args.enable_packing:
+                dataset_cls = BaseI2VDataset
+                raise NotImplementedError("Packing for I2V is not implemented")
 
-            case "t2v":
-                from cogkit.datasets import BaseT2VDataset, T2VDatasetWithResize
+        elif self.args.model_type == "t2v":
+            from cogkit.datasets import BaseT2VDataset, T2VDatasetWithResize
 
-                dataset_cls = T2VDatasetWithResize
-                if self.args.enable_packing:
-                    dataset_cls = BaseT2VDataset
-                    raise NotImplementedError("Packing for T2V is not implemented")
+            dataset_cls = T2VDatasetWithResize
+            if self.args.enable_packing:
+                dataset_cls = BaseT2VDataset
+                raise NotImplementedError("Packing for T2V is not implemented")
 
-            case "t2i":
-                from cogkit.datasets import (
-                    BaseT2IDataset,
-                    T2IDatasetWithPacking,
-                    T2IDatasetWithResize,
-                )
+        elif self.args.model_type == "t2i":
+            from cogkit.datasets import (
+                T2IDatasetWithFactorResize,
+                T2IDatasetWithPacking,
+                T2IDatasetWithResize,
+            )
 
-                dataset_cls = T2IDatasetWithResize
-                if self.args.enable_packing:
-                    dataset_cls = BaseT2IDataset
-                    dataset_cls_packing = T2IDatasetWithPacking
+            dataset_cls = T2IDatasetWithResize
+            if self.args.enable_packing:
+                dataset_cls = T2IDatasetWithFactorResize
+                dataset_cls_packing = T2IDatasetWithPacking
 
-            case _:
-                raise ValueError(f"Invalid model type: {self.args.model_type}")
+        else:
+            raise ValueError(f"Invalid model type: {self.args.model_type}")
 
         additional_args = {
             "device": self.accelerator.device,
@@ -174,12 +172,9 @@ class DiffusionTrainer(BaseTrainer):
 
     @override
     def validate(self, step: int, ckpt_path: str | None = None) -> None:
-        # TODO: refactor later
         self.logger.info("Starting validation")
 
-        accelerator = self.accelerator
         num_validation_samples = len(self.test_data_loader)
-
         if num_validation_samples == 0:
             self.logger.warning("No validation samples found. Skipping validation.")
             return
@@ -220,24 +215,25 @@ class DiffusionTrainer(BaseTrainer):
         all_processes_artifacts = []
         for i, batch in enumerate(self.test_data_loader):
             # only batch size = 1 is currently supported
-            prompt = batch.get("prompt", [])
-            prompt = prompt[0] if prompt else prompt
+            prompt = batch.get("prompt", None)
+            prompt = prompt[0] if prompt else None
             prompt_embedding = batch.get("prompt_embedding", None)
 
-            image = batch.get("image", [])
-            image = image[0] if image else image
+            image = batch.get("image", None)
+            image = image[0] if image else None
             encoded_image = batch.get("encoded_image", None)
 
-            video = batch.get("video", [])
-            video = video[0] if video else video
+            video = batch.get("video", None)
+            video = video[0] if video else None
             encoded_video = batch.get("encoded_video", None)
 
             self.logger.debug(
-                f"Validating sample {i + 1}/{num_validation_samples} on process {accelerator.process_index}. Prompt: {prompt}",
+                f"Validating sample {i + 1}/{num_validation_samples} on process {self.accelerator.process_index}. Prompt: {prompt}",
                 main_process_only=False,
             )
-            validation_artifacts = self.validation_step(
-                {
+            val_res = self.validation_step(
+                pipe=pipe,
+                eval_data={
                     "prompt": prompt,
                     "prompt_embedding": prompt_embedding,
                     "image": image,
@@ -245,90 +241,43 @@ class DiffusionTrainer(BaseTrainer):
                     "video": video,
                     "encoded_video": encoded_video,
                 },
-                pipe,
             )
 
             artifacts = {}
-            for ii, (artifact_type, artifact_value) in enumerate(validation_artifacts):
-                artifacts.update(
-                    {
-                        f"artifact_{ii}": {
-                            "type": artifact_type,
-                            "value": artifact_value,
-                        }
-                    }
-                )
-            self.logger.debug(
-                f"Validation artifacts on process {accelerator.process_index}: {list(artifacts.keys())}",
-                main_process_only=False,
-            )
+            val_path = self.args.output_dir / "validation_res" / f"validation-{step}"
+            val_path.mkdir(parents=True, exist_ok=True)
+            filename = f"artifact-process{self.accelerator.process_index}-batch{i}"
 
-            for key, value in list(artifacts.items()):
-                artifact_type = value["type"]
-                artifact_value = value["value"]
-                if artifact_type not in ["text", "image", "video"] or artifact_value is None:
-                    continue
+            image = val_res.get("image", None)
+            video = val_res.get("video", None)
+            with open(val_path / f"{filename}.txt", "w") as f:
+                f.write(prompt)
+            if image:
+                fpath = str(val_path / f"{filename}.png")
+                image.save(fpath)
+                artifacts["image"] = wandb.Image(fpath, caption=prompt)
+            if video:
+                fpath = str(val_path / f"{filename}.mp4")
+                export_to_video(video, fpath, fps=self.args.gen_fps)
+                artifacts["video"] = wandb.Video(fpath, caption=prompt)
 
-                match artifact_type:
-                    case "text":
-                        extension = "txt"
-                    case "image":
-                        extension = "png"
-                    case "video":
-                        extension = "mp4"
-                validation_path = self.args.output_dir / "validation_res" / f"validation-{step}"
-                validation_path.mkdir(parents=True, exist_ok=True)
-                filename = f"artifact-process{accelerator.process_index}-batch{i}.{extension}"
-                filename = str(validation_path / filename)
-
-                if artifact_type == "image":
-                    self.logger.debug(f"Saving image to {filename}")
-                    artifact_value.save(filename)
-                    artifact_value = wandb.Image(filename)
-                elif artifact_type == "video":
-                    self.logger.debug(f"Saving video to {filename}")
-                    export_to_video(artifact_value, filename, fps=self.args.gen_fps)
-                    artifact_value = wandb.Video(filename)
-                elif artifact_type == "text":
-                    self.logger.debug(f"Saving text to {filename}")
-                    with open(filename, "w") as f:
-                        f.write(artifact_value)
-                    artifact_value = str(artifact_value)
-
-                all_processes_artifacts.append(artifact_value)
+            all_processes_artifacts.append(artifacts)
 
         all_artifacts = gather_object(all_processes_artifacts)
+        all_artifacts = expand_list(all_artifacts)
 
-        if accelerator.is_main_process:
+        if self.accelerator.is_main_process:
             tracker_key = "validation"
-            for tracker in accelerator.trackers:
+            for tracker in self.accelerator.trackers:
                 if tracker.name == "wandb":
-                    text_artifacts = [
-                        artifact for artifact in all_artifacts if isinstance(artifact, str)
-                    ]
-                    image_artifacts = [
-                        artifact for artifact in all_artifacts if isinstance(artifact, wandb.Image)
-                    ]
-                    video_artifacts = [
-                        artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)
-                    ]
-                    tracker.log(
-                        {
-                            tracker_key: {
-                                "texts": text_artifacts,
-                                "images": image_artifacts,
-                                "videos": video_artifacts,
-                            },
-                        },
-                        step=step,
-                    )
+                    tracker.log({tracker_key: all_artifacts}, step=step)
 
         ##########  Clean up  ##########
         if self.state.using_deepspeed:
             del pipe
             # Unload models except those needed for training
             self.move_components_to_device(
-                dtype=self.state.weight_dtype, device="cpu", ignore_list=self.UNLOAD_LIST
+                dtype=self.state.weight_dtype, device="cpu", ignore_list=["transformer"]
             )
         else:
             pipe.remove_all_hooks()
@@ -342,15 +291,15 @@ class DiffusionTrainer(BaseTrainer):
             self.components.transformer.to(self.accelerator.device, dtype=self.state.weight_dtype)
 
             # Change trainable weights back to fp32 to keep with dtype after prepare the model
-            cast_training_params([self.components.transformer], dtype=torch.float32)
+            # cast_training_params([self.components.transformer], dtype=torch.float32)
 
         free_memory()
-        accelerator.wait_for_everyone()
+        self.accelerator.wait_for_everyone()
         ################################
 
         memory_statistics = get_memory_statistics(self.logger)
         self.logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
-        torch.cuda.reset_peak_memory_stats(accelerator.device)
+        torch.cuda.reset_peak_memory_stats(self.accelerator.device)
 
         torch.set_grad_enabled(True)
         self.components.transformer.train()
@@ -364,6 +313,9 @@ class DiffusionTrainer(BaseTrainer):
         raise NotImplementedError
 
     def collate_fn(self, samples: list[dict[str, Any]]):
+        """
+        Note: This collate_fn function are used for both training and validation.
+        """
         raise NotImplementedError
 
     def initialize_pipeline(self, ckpt_path: str | None = None) -> DiffusionPipeline:
@@ -388,8 +340,27 @@ class DiffusionTrainer(BaseTrainer):
         raise NotImplementedError
 
     def validation_step(
-        self,
-    ) -> list[tuple[str, Image.Image | list[Image.Image]]]:
+        self, pipe: DiffusionPipeline, eval_data: dict[str, Any]
+    ) -> dict[str, str | Image.Image | list[Image.Image]]:
+        """
+        Perform a validation step using the provided pipeline and evaluation data.
+
+        Args:
+            pipe: The diffusion pipeline instance used for validation.
+            eval_data: A dictionary containing data for validation, may include:
+                - "prompt": Text prompt for generation (str).
+                - "prompt_embedding": Pre-computed text embeddings.
+                - "image": Input image for image-to-image tasks.
+                - "encoded_image": Pre-computed image embeddings.
+                - "video": Input video for video tasks.
+                - "encoded_video": Pre-computed video embeddings.
+
+        Returns:
+            A dictionary containing generated artifacts with keys:
+                - "text": Text data (str).
+                - "image": Generated image (PIL.Image.Image).
+                - "video": Generated video (list[PIL.Image.Image]).
+        """
         raise NotImplementedError
 
     # ==========  Packing related functions  ==========

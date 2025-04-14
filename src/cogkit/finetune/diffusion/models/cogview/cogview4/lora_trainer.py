@@ -35,6 +35,7 @@ class Cogview4Trainer(DiffusionTrainer):
             bnb_4bit_use_double_quant=True,
             bnb_4bit_compute_dtype=torch.bfloat16,
         )
+        dtype = self.state.weight_dtype
 
         components = DiffusionComponents()
         model_path = str(self.args.model_path)
@@ -49,27 +50,31 @@ class Cogview4Trainer(DiffusionTrainer):
         components.text_encoder = GlmForCausalLM.from_pretrained(
             model_path,
             subfolder="text_encoder",
-            torch_dtype=torch.bfloat16,
+            torch_dtype=dtype,
         )
 
         ### transformer
         if not self.args.low_vram:
             components.transformer = CogView4Transformer2DModel.from_pretrained(
-                model_path, subfolder="transformer", torch_dtype=torch.bfloat16, device="cpu"
+                model_path,
+                subfolder="transformer",
+                torch_dtype=dtype,
             )
         else:
             components.transformer = CogView4Transformer2DModel.from_pretrained(
                 model_path,
                 subfolder="transformer",
-                torch_dtype=torch.bfloat16,
+                torch_dtype=dtype,
                 quantization_config=nf4_config,
-                device_map="auto",
+                device=self.accelerator.device,
             )
 
+        ### vae
         components.vae = AutoencoderKL.from_pretrained(
-            model_path, subfolder="vae", torch_dtype=torch.bfloat16, device="cpu"
+            model_path, subfolder="vae", torch_dtype=dtype
         )
 
+        ### scheduler
         components.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
             model_path, subfolder="scheduler"
         )
@@ -91,8 +96,7 @@ class Cogview4Trainer(DiffusionTrainer):
             transformer = CogView4Transformer2DModel.from_pretrained(
                 str(self.args.model_path),
                 subfolder="transformer",
-                torch_dtype=torch.bfloat16,
-                device="cpu",
+                torch_dtype=self.state.weight_dtype,
             )
             pipe = CogView4Pipeline(
                 tokenizer=self.components.tokenizer,
@@ -142,7 +146,34 @@ class Cogview4Trainer(DiffusionTrainer):
     @override
     def collate_fn(self, samples: list[dict[str, Any]]) -> dict[str, Any]:
         """
-        This function assumes that all the images in samples have the same resolution.
+        Collate function that processes a batch of samples from the `T2IDatasetWithFactorResize` dataset.
+
+        This function combines individual samples into a batch that can be processed by the model.
+        It handles prompt embeddings, images, and attention masks, ensuring proper formatting
+        for model training.
+
+        This function is shared between training and validation dataloaders:
+        - During training: All fields (prompt, prompt_embedding, image, encoded_image) are provided
+        - During validation: Only 'prompt' and 'prompt_embedding' are provided, while 'image' and
+          'encoded_image' will be None
+
+        Args:
+            samples: A list of dictionaries, each representing a sample with keys:
+                - 'prompt': Text prompt string
+                - 'prompt_embedding': Encoded text prompt tensor
+                - 'image': Original image tensor (provided only during training)
+                - 'encoded_image': VAE-encoded latent representation (provided only during training)
+
+        Returns:
+            A dictionary containing batch-processed data with keys:
+                - 'prompt': List of prompt strings
+                - 'prompt_embedding': Tensor of shape [batch_size, sequence_length, embedding_dim]
+                - 'image': List of image tensors (will be empty during validation)
+                - 'encoded_image': Tensor of shape [batch_size, channels, height, width] (None during validation)
+                - 'attention_mask': Dictionary with 'text_embedding_attn_mask' for transformer attention
+
+        Note:
+            This function assumes that all images in the batch have the same resolution.
         """
         ret = {
             "prompt": [],
@@ -199,29 +230,17 @@ class Cogview4Trainer(DiffusionTrainer):
         image_seq_len = (
             (image_height // vae_scale_factor) * (image_width // vae_scale_factor)
         ) // (self.state.transformer_config.patch_size**2)
+        image_seq_len = torch.tensor([image_seq_len], device=self.accelerator.device)
 
         attention_mask = batch["attention_mask"]
 
-        # prepare timesteps
-        m = (image_seq_len / self.components.scheduler.config.base_image_seq_len) ** 0.5
-        mu = (
-            m * self.components.scheduler.config.max_shift
-            + self.components.scheduler.config.base_shift
-        )
-        self.components.scheduler.set_timesteps(
-            self.components.scheduler.config.num_train_timesteps,
-            mu=mu,
-            device=self.accelerator.device,
-        )
-        timestep = torch.randint(
-            0,
-            self.components.scheduler.config.num_train_timesteps,
-            (1,),
-            device=self.accelerator.device,
-        ).long()
+        num_train_timesteps = self.components.scheduler.config.num_train_timesteps
+        sigmas = self.get_sigmas(batch_size, image_seq_len)
+        timestep = self.get_timestep(batch_size, num_train_timesteps)
 
         noise = torch.randn_like(latent)
-        model_input, model_label = self.add_noise(latent, noise, timestep[0])
+        model_input, model_label = self.add_noise(latent, noise, timestep, sigmas)
+
         original_size = torch.tensor(
             [[image_height, image_width] for _ in range(batch_size)],
             dtype=latent.dtype,
@@ -252,38 +271,63 @@ class Cogview4Trainer(DiffusionTrainer):
 
         return loss
 
+    def get_sigmas(self, batch_size: int, vtoken_seq_len: torch.Tensor) -> torch.Tensor:
+        assert vtoken_seq_len.ndim == 1
+        if vtoken_seq_len.size(0) == 1:
+            vtoken_seq_len = vtoken_seq_len.repeat(batch_size)
+        else:
+            assert vtoken_seq_len.size(0) == batch_size
+
+        scheduler = self.components.scheduler
+        scheduler = self.components.scheduler
+        sigmas = torch.linspace(
+            scheduler.sigma_min,
+            scheduler.sigma_max,
+            scheduler.config.num_train_timesteps,
+            device=self.accelerator.device,
+        )
+        m = (vtoken_seq_len / scheduler.config.base_image_seq_len) ** 0.5
+        mu = m * scheduler.config.max_shift + scheduler.config.base_shift
+        mu = mu.unsqueeze(1)
+        sigmas = mu / (mu + (1 / sigmas - 1))
+        sigmas = torch.cat([torch.zeros((batch_size, 1), device=sigmas.device), sigmas], dim=1)
+        return sigmas
+
+    def get_timestep(self, batch_size: int, num_train_timesteps: int) -> torch.LongTensor:
+        return torch.randint(
+            0,
+            num_train_timesteps,
+            (batch_size,),
+            device=self.accelerator.device,
+        )
+
     def add_noise(
-        self, latent: torch.Tensor, noise: torch.Tensor, timestep: torch.LongTensor
+        self,
+        latent: torch.Tensor,
+        noise: torch.Tensor,
+        timestep: torch.Tensor,
+        sigmas: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Add noise to the latent vector based on the timestep.
+        assert latent.shape[0] == noise.shape[0] == timestep.shape[0] == sigmas.shape[0]
+        index = timestep
+        scale_factor = (
+            torch.gather(sigmas, dim=1, index=index.unsqueeze(1))
+            .squeeze(1)
+            .view(-1, 1, 1, 1)
+            .to(latent.device)
+        )
 
-        Args:
-            latent (torch.Tensor): The latent vector to add noise to.
-            noise (torch.Tensor): The noise tensor to add.
-            timestep (torch.LongTensor): The current timestep.
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: The noisy latent vector that will be input to the model and the model label.
-        """
-        num_train_timesteps = self.components.scheduler.config.num_train_timesteps
-        # note: sigmas in scheduler is arranged in reversed order
-        scale_factor = self.components.scheduler.sigmas[num_train_timesteps - timestep]
         model_input = latent * (1 - scale_factor) + noise * scale_factor
         model_label = noise - latent
         return model_input, model_label
 
     @override
     def validation_step(
-        self, eval_data: dict[str, Any], pipe: CogView4Pipeline
-    ) -> list[tuple[str, Image.Image | list[Image.Image]]]:
-        """
-        Return the data that needs to be saved. For images, the data format is PIL
-        """
+        self, pipe: CogView4Pipeline, eval_data: dict[str, Any]
+    ) -> dict[str, str | Image.Image]:
         prompt = eval_data["prompt"]
         prompt_embedding = eval_data["prompt_embedding"]
 
-        # FIXME
         image_generate = pipe(
             height=self.state.train_resolution[0],
             width=self.state.train_resolution[1],
@@ -293,7 +337,7 @@ class Cogview4Trainer(DiffusionTrainer):
             ),  # Add batch dimension
             generator=self.state.generator,
         ).images[0]
-        return [("text", prompt), ("image", image_generate)]
+        return {"text": prompt, "image": image_generate}
 
 
 register("cogview4-6b", "lora", Cogview4Trainer)

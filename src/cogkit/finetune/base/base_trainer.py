@@ -20,24 +20,21 @@ from accelerate.utils import (
     set_seed,
 )
 from diffusers.optimization import get_scheduler
-from peft import (
-    LoraConfig,
-    get_peft_model_state_dict,
-    set_peft_model_state_dict,
-)
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from cogkit.finetune.base import BaseArgs, BaseComponents, BaseState
+from cogkit.utils.lora import inject_lora, save_lora
 
 from ..utils import (
     cast_training_params,
     free_memory,
-    get_intermediate_ckpt_path,
     get_latest_ckpt_path_to_resume_from,
     get_memory_statistics,
     get_optimizer,
     unwrap_model,
+    find_files,
+    delete_files,
 )
 
 _DTYPE_MAP = {
@@ -63,23 +60,22 @@ class BaseTrainer(ABC):
 
     def __init__(self) -> None:
         self.logger = get_logger(self.LOG_NAME, self.LOG_LEVEL)
-
-        self.args = self._init_args()
-        self.components = self.load_components()
-        self.state = self._init_state()
-
         self.accelerator: Accelerator = None
         self.train_dataset: Dataset = None
         self.test_dataset: Dataset = None
         self.train_data_loader: DataLoader = None
         self.test_data_loader: DataLoader = None
-
         self.optimizer = None
         self.lr_scheduler = None
+
+        self.args = self._init_args()
+        self.state = self._init_state()
 
         self._init_distributed()
         self._init_logging()
         self._init_directories()
+
+        self.components = self.load_components()
 
         self.state.using_deepspeed = self.accelerator.state.deepspeed_plugin is not None
 
@@ -108,6 +104,12 @@ class BaseTrainer(ABC):
             accelerator.native_amp = False
 
         self.accelerator = accelerator
+
+        tracker_name = self.args.tracker_name
+        self.accelerator.init_trackers(
+            project_name=tracker_name,
+            init_kwargs={"wandb": {"name": self.args.output_dir.name}},
+        )
 
         if self.args.seed is not None:
             set_seed(self.args.seed)
@@ -168,27 +170,16 @@ class BaseTrainer(ABC):
                     component.requires_grad_(False)
 
         if self.args.training_type == "lora":
-            transformer_lora_config = LoraConfig(
-                r=self.args.rank,
-                lora_alpha=self.args.lora_alpha,
-                init_lora_weights=True,
-                target_modules=self.args.target_modules,
-            )
-            self.components.transformer.add_adapter(transformer_lora_config)
-            self.prepare_saving_loading_hooks(transformer_lora_config)
-
-        # Load components needed for training to GPU (except transformer), and cast them to the specified data type
-        ignore_list = ["transformer"] + self.UNLOAD_LIST
-        self.move_components_to_device(
-            dtype=weight_dtype, device=self.accelerator.device, ignore_list=ignore_list
-        )
+            # Initialize LoRA weights
+            inject_lora(self.components.transformer, lora_dir_or_state_dict=None)
+            self.prepare_saving_loading_hooks()
 
         if self.args.gradient_checkpointing:
             self.components.transformer.enable_gradient_checkpointing()
 
     def prepare_optimizer(self) -> None:
         # Make sure the trainable params are in float32
-        cast_training_params([self.components.transformer], dtype=torch.float32)
+        # cast_training_params([self.components.transformer], dtype=torch.float32)
 
         # For LoRA, we only want to train the LoRA weights
         # For SFT, we want to train all the parameters
@@ -222,12 +213,12 @@ class BaseTrainer(ABC):
             use_deepspeed=use_deepspeed_opt,
         )
 
+        # Do not need to divide by num_gpus since acclerate will handle this after prepare lr_scheduler
         num_update_steps_per_epoch = math.ceil(
             len(self.train_data_loader) / self.args.gradient_accumulation_steps
         )
-        if self.args.train_steps is None:
-            self.args.train_steps = self.args.train_epochs * num_update_steps_per_epoch
-            self.state.overwrote_max_train_steps = True
+        total_train_steps = self.args.train_epochs * num_update_steps_per_epoch
+        total_num_warmup_steps = max(int(total_train_steps * self.args.lr_warmup_ratio), 0)
 
         use_deepspeed_lr_scheduler = (
             self.accelerator.state.deepspeed_plugin is not None
@@ -240,15 +231,15 @@ class BaseTrainer(ABC):
             lr_scheduler = DummyScheduler(
                 name=self.args.lr_scheduler,
                 optimizer=optimizer,
-                total_num_steps=self.args.train_steps,
-                num_warmup_steps=self.args.lr_warmup_steps,
+                total_num_steps=total_train_steps,
+                num_warmup_steps=total_num_warmup_steps,
             )
         else:
             lr_scheduler = get_scheduler(
                 name=self.args.lr_scheduler,
                 optimizer=optimizer,
-                num_warmup_steps=self.args.lr_warmup_steps,
-                num_training_steps=self.args.train_steps,
+                num_warmup_steps=total_num_warmup_steps,
+                num_training_steps=total_train_steps,
                 num_cycles=self.args.lr_num_cycles,
                 power=self.args.lr_power,
             )
@@ -257,6 +248,9 @@ class BaseTrainer(ABC):
         self.lr_scheduler = lr_scheduler
 
     def prepare_for_training(self) -> None:
+        # cast training params to the specified data type (bf16)
+        cast_training_params(self.components.transformer, dtype=self.state.weight_dtype)
+
         (
             self.components.transformer,
             self.optimizer,
@@ -269,23 +263,24 @@ class BaseTrainer(ABC):
             self.lr_scheduler,
         )
 
+        # Load components needed for training to GPU (except transformer), and cast them to the specified data type
+        ignore_list = self.UNLOAD_LIST
+        self.move_components_to_device(
+            dtype=self.state.weight_dtype, device=self.accelerator.device, ignore_list=ignore_list
+        )
+
         if self.args.do_validation:
             assert self.test_data_loader is not None
             self.test_data_loader = self.accelerator.prepare_data_loader(self.test_data_loader)
 
-        # We need to recalculate our total training steps as the size of the training dataloader may have changed.
+        # We need to recalculate our total training steps as the size of the training dataloader may have changed in distributed training
         num_update_steps_per_epoch = math.ceil(
             len(self.train_data_loader) / self.args.gradient_accumulation_steps
         )
-        if self.state.overwrote_max_train_steps:
-            self.args.train_steps = self.args.train_epochs * num_update_steps_per_epoch
+        self.args.train_steps = self.args.train_epochs * num_update_steps_per_epoch
         # Afterwards we recalculate our number of training epochs
         self.args.train_epochs = math.ceil(self.args.train_steps / num_update_steps_per_epoch)
         self.state.num_update_steps_per_epoch = num_update_steps_per_epoch
-
-    def prepare_trackers(self) -> None:
-        tracker_name = self.args.tracker_name
-        self.accelerator.init_trackers(tracker_name, config=self.args.model_dump())
 
     def train(self) -> None:
         memory_statistics = get_memory_statistics(self.logger)
@@ -382,25 +377,25 @@ class BaseTrainer(ABC):
                     global_step += 1
                     ckpt_path = self.maybe_save_checkpoint(global_step)
 
-                logs["loss"] = loss.detach().item()
-                logs["lr"] = self.lr_scheduler.get_last_lr()[0]
-                progress_bar.set_postfix(logs)
+                    logs["loss"] = loss.detach().item()
+                    logs["lr"] = self.lr_scheduler.get_last_lr()[0]
+                    progress_bar.set_postfix(logs)
 
-                # Maybe run validation
-                should_run_validation = (
-                    self.args.do_validation
-                    and global_step % self.args.validation_steps == 0
-                    and accelerator.sync_gradients
-                )
-                if should_run_validation:
-                    del loss
-                    free_memory()
-                    self.validate(global_step, ckpt_path=ckpt_path)
+                    # Maybe run validation
+                    should_run_validation = (
+                        self.args.do_validation
+                        and global_step % self.args.validation_steps == 0
+                        and accelerator.sync_gradients
+                    )
+                    if should_run_validation:
+                        del loss
+                        free_memory()
+                        self.validate(global_step, ckpt_path=ckpt_path)
 
-                accelerator.log(logs, step=global_step)
+                    accelerator.log(logs, step=global_step)
 
-                if global_step >= self.args.train_steps:
-                    break
+                    if global_step >= self.args.train_steps:
+                        break
 
             memory_statistics = get_memory_statistics(self.logger)
             self.logger.info(
@@ -438,9 +433,6 @@ class BaseTrainer(ABC):
 
         self.logger.info("Preparing for training...")
         self.prepare_for_training()
-
-        self.logger.info("Initializing trackers...")
-        self.prepare_trackers()
 
         self.logger.info("Starting training...")
         self.train()
@@ -494,92 +486,72 @@ class BaseTrainer(ABC):
         ignore_list = set(ignore_list)
         components = self.components.model_dump()
         for name, component in components.items():
-            if not isinstance(component, type) and hasattr(component, "to"):
-                if name not in ignore_list:
-                    setattr(
-                        self.components,
-                        name,
-                        component.to(device, dtype=dtype),
-                    )
-
-    def prepare_saving_loading_hooks(self, transformer_lora_config):
-        # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
-        def save_model_hook(models, weights, output_dir):
-            if self.accelerator.is_main_process:
-                transformer_lora_layers_to_save = None
-
-                for model in models:
-                    if isinstance(
-                        unwrap_model(self.accelerator, model),
-                        type(unwrap_model(self.accelerator, self.components.transformer)),
-                    ):
-                        model = unwrap_model(self.accelerator, model)
-                        transformer_lora_layers_to_save = get_peft_model_state_dict(model)
-                    else:
-                        raise ValueError(f"Unexpected save model: {model.__class__}")
-
-                    # make sure to pop weight so that corresponding model is not saved again
-                    if weights:
-                        weights.pop()
-
-                self.components.pipeline_cls.save_lora_weights(
-                    output_dir,
-                    transformer_lora_layers=transformer_lora_layers_to_save,
+            if (
+                not isinstance(component, type)
+                and hasattr(component, "to")
+                and name not in ignore_list
+            ):
+                setattr(
+                    self.components,
+                    name,
+                    component.to(device, dtype=dtype),
                 )
 
-        def load_model_hook(models, input_dir):
-            if self.accelerator.distributed_type != DistributedType.DEEPSPEED:
-                while len(models) > 0:
-                    model = models.pop()
-                    if isinstance(
-                        unwrap_model(self.accelerator, model),
-                        type(unwrap_model(self.accelerator, self.components.transformer)),
-                    ):
-                        transformer_ = unwrap_model(self.accelerator, model)
-                    else:
-                        raise ValueError(
-                            f"Unexpected save model: {unwrap_model(self.accelerator, model).__class__}"
-                        )
-            else:
-                transformer_ = unwrap_model(
-                    self.accelerator, self.components.transformer
-                ).__class__.from_pretrained(self.args.model_path, subfolder="transformer")
-                transformer_.add_adapter(transformer_lora_config)
+    def prepare_saving_loading_hooks(self):
+        # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
+        def save_model_hook(models, weights, output_dir):
+            assert self.accelerator.distributed_type != DistributedType.DEEPSPEED
 
-            lora_state_dict = self.components.pipeline_cls.lora_state_dict(input_dir)
-            transformer_state_dict = {
-                f"{k.replace('transformer.', '')}": v
-                for k, v in lora_state_dict.items()
-                if k.startswith("transformer.")
-            }
-            incompatible_keys = set_peft_model_state_dict(
-                transformer_, transformer_state_dict, adapter_name="default"
-            )
-            if incompatible_keys is not None:
-                # check only for unexpected keys
-                unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
-                if unexpected_keys:
-                    self.logger.warning(
-                        f"Loading adapter weights from state_dict led to unexpected keys not found in the model: "
-                        f" {unexpected_keys}. "
-                    )
+            for model in models:
+                original_model = unwrap_model(self.accelerator, model)
+                original_transformer = unwrap_model(self.accelerator, self.components.transformer)
+                if isinstance(original_model, type(original_transformer)):
+                    if self.accelerator.is_main_process:
+                        save_lora(model, output_dir)
+                else:
+                    raise ValueError(f"Unexpected save model: {model.__class__}")
+
+                # make sure to pop weight so that corresponding model is not saved again
+                if weights:
+                    weights.pop()
+
+        def load_model_hook(models, input_dir):
+            assert self.accelerator.distributed_type != DistributedType.DEEPSPEED
+
+            for model in models:
+                original_model = unwrap_model(self.accelerator, model)
+                original_transformer = unwrap_model(self.accelerator, self.components.transformer)
+                if isinstance(original_model, type(original_transformer)):
+                    inject_lora(model, input_dir)
+                else:
+                    raise ValueError(f"Unexpected save model: {model.__class__}")
 
         self.accelerator.register_save_state_pre_hook(save_model_hook)
         self.accelerator.register_load_state_pre_hook(load_model_hook)
 
     def maybe_save_checkpoint(self, global_step: int, must_save: bool = False) -> str | None:
-        save_path = None
-        if (
-            self.accelerator.distributed_type == DistributedType.DEEPSPEED
-            or self.accelerator.is_main_process
-        ):
-            if must_save or global_step % self.args.checkpointing_steps == 0:
-                # for training
-                save_path = get_intermediate_ckpt_path(
-                    checkpointing_limit=self.args.checkpointing_limit,
-                    step=global_step,
-                    output_dir=self.args.output_dir,
-                    logger=self.logger,
-                )
-                self.accelerator.save_state(save_path, safe_serialization=True)
+        if not (must_save or global_step % self.args.checkpointing_steps == 0):
+            return None
+
+        checkpointing_limit = self.args.checkpointing_limit
+        output_dir = Path(self.args.output_dir)
+        logger = self.logger
+
+        if checkpointing_limit is not None:
+            checkpoints = find_files(output_dir, prefix="checkpoint")
+
+            # before we save the new checkpoint, we need to have at_most `checkpoints_total_limit - 1` checkpoints
+            if len(checkpoints) >= checkpointing_limit:
+                num_to_remove = len(checkpoints) - checkpointing_limit + 1
+                checkpoints_to_remove = checkpoints[0:num_to_remove]
+                if self.accelerator.is_main_process:
+                    delete_files(checkpoints_to_remove, logger)
+
+        logger.info(f"Checkpointing at step {global_step}")
+        save_path = output_dir / f"checkpoint-{global_step}"
+        logger.info(f"Saving state to {save_path}")
+
+        self.accelerator.save_state(save_path, safe_serialization=True)
+
+        self.accelerator.wait_for_everyone()
         return save_path

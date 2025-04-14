@@ -7,37 +7,53 @@ import torch
 from typing_extensions import override
 
 from cogkit.finetune import register
-from cogkit.finetune.diffusion.trainer import DiffusionState
 from cogkit.finetune.utils import (
-    expand_list,
     process_latent_attention_mask,
     process_prompt_attention_mask,
 )
+from cogkit.utils import expand_list
+from diffusers.models.transformers.transformer_cogview4 import CogView4RotaryPosEmbed
 
 from .lora_trainer import Cogview4Trainer
 
 
 class Cogview4LoraPackingTrainer(Cogview4Trainer):
+    IMAGE_FACTOR = 32  # Size of image (height, width) to be trained should be a multiple of 32
+
     DOWNSAMPLER_FACTOR = 8
-    PATCH_SIZE = None
+    PATCH_SIZE: int
+    ATTN_HEAD: int
+    ATTEN_DIM: int
+    ROPE_DIM: Tuple[int, int]
+
+    max_vtoken_length: int
+    training_seq_length: int
+    rope: CogView4RotaryPosEmbed
 
     @override
-    def _init_state(self) -> DiffusionState:
-        patch_size = self.components.transformer.config.patch_size
-        self.PATCH_SIZE = patch_size
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        transformer = self.components.transformer
+        self.PATCH_SIZE = transformer.config.patch_size
+        self.ATTN_HEAD = transformer.config.num_attention_heads
+        self.ATTEN_DIM = transformer.config.attention_head_dim
+        self.ROPE_DIM = transformer.config.rope_axes_dim
+
+        patch_size = self.PATCH_SIZE
         height, width = self.args.train_resolution
         sample_height, sample_width = (
             height // self.DOWNSAMPLER_FACTOR,
             width // self.DOWNSAMPLER_FACTOR,
         )
-        max_vtoken_length = sample_height * sample_width // patch_size**2
-        training_seq_length = max_vtoken_length + self.MAX_TTOKEN_LENGTH
+        self.max_vtoken_length = sample_height * sample_width // patch_size**2
+        self.training_seq_length = self.max_vtoken_length + self.MAX_TTOKEN_LENGTH
+        self.state.training_seq_length = self.training_seq_length
 
-        return DiffusionState(
-            weight_dtype=self.get_training_dtype(),
-            train_resolution=self.args.train_resolution,
-            max_vtoken_length=max_vtoken_length,
-            training_seq_length=training_seq_length,
+        self.rope = CogView4RotaryPosEmbed(
+            dim=self.ATTEN_DIM,
+            patch_size=self.PATCH_SIZE,
+            rope_axes_dim=self.ROPE_DIM,
         )
 
     @override
@@ -53,34 +69,51 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         paded_width = latent_width + latent_width % patch_size
         paded_height = latent_height + latent_height % patch_size
         latent_length = paded_height * paded_width // patch_size**2
-        if latent_length > self.state.max_vtoken_length:
+        if latent_length > self.max_vtoken_length:
             raise ValueError(
-                f"latent_length {latent_length} is greater than max_vtoken_length {self.state.max_vtoken_length}, "
-                f"which means there is at least one sample in the batch has resolution greater than "
-                f"{self.args.train_resolution[0]}x{self.args.train_resolution[1]} "
-                f"({self.args.train_resolution[0] * self.args.train_resolution[1]} pixels)."
-                "Recommended solutions:\n"
-                "    1. Manually resize images that exceed the maximum pixels.\n"
-                "    2. Increase the train_resolution in your configuration.\n"
-                "    3. Disable packing by setting `--enable_packing false` in your training arguments."
+                f"latent_length {latent_length} is greater than max_vtoken_length {self.max_vtoken_length}"
             )
 
-        assert (
-            self.MAX_TTOKEN_LENGTH + self.state.max_vtoken_length == self.state.training_seq_length
-        )
-        assert latent_length + prompt_embedding.shape[0] <= self.state.training_seq_length
+        assert self.MAX_TTOKEN_LENGTH + self.max_vtoken_length == self.training_seq_length
+        assert latent_length + prompt_embedding.shape[0] <= self.training_seq_length
 
         return latent_length + prompt_embedding.shape[0]
 
     @override
     def collate_fn_packing(self, samples: list[dict[str, list[Any]]]) -> dict[str, Any]:
-        """
-        Note: This collate_fn is for the training dataloader.
-        For validation, you should use the collate_fn from Cogview4Trainer.
+        """Collate function for training dataloader with packing support.
+
+        This function processes batches of samples from the `T2IDatasetWithPacking` dataset,
+        combining multiple samples into a single batch while maintaining proper attention masks
+        and positional embeddings.
+
+        Args:
+            samples: List of dictionaries containing packed samples. Each sample contains:
+                - prompt: List of text prompts
+                - prompt_embedding: List of prompt embeddings
+                - encoded_image: List of encoded image latents
+                - image: List of original images
+
+        Returns:
+            dict: A dictionary containing batched data with the following keys:
+                - prompt_embedding: Batched prompt embeddings
+                - encoded_image: Batched encoded image latents
+                - image_rotary_emb: Rotary embeddings for images
+                - attention_mask: Dictionary containing:
+                    - batch_flag: Indices indicating which sample each item belongs to
+                    - text_embedding_attn_mask: Attention mask for text embeddings
+                    - latent_embedding_attn_mask: Attention mask for latent embeddings
+                - pixel_mask: Mask for valid pixel regions
+                - original_size: Original dimensions of the images
+
+        Note:
+            This function is specifically used for the training dataloader.
+            For validation, the collate_fn from Cogview4Trainer should be used instead.
         """
         batched_data = {
             "prompt_embedding": None,
             "encoded_image": None,
+            "image_rotary_emb": None,
             "attention_mask": {
                 "batch_flag": None,
                 "text_embedding_attn_mask": None,
@@ -104,6 +137,7 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         )
 
         patch_size = self.PATCH_SIZE
+        image_rotary_emb = [self.rope(ei.unsqueeze(0)) for ei in samples["encoded_image"]]
         padded_latent, vtoken_attention_mask, pixel_mask = process_latent_attention_mask(
             samples["encoded_image"], patch_size
         )
@@ -112,21 +146,25 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         batched_data["prompt_embedding"] = prompt_embedding
         batched_data["attention_mask"]["text_embedding_attn_mask"] = prompt_attention_mask
         batched_data["encoded_image"] = padded_latent
+        batched_data["image_rotary_emb"] = image_rotary_emb
         batched_data["attention_mask"]["latent_embedding_attn_mask"] = (
             vtoken_attention_mask.reshape(len(batch_flag), -1)
         )
         batched_data["pixel_mask"] = pixel_mask
 
         batched_data["attention_mask"]["batch_flag"] = batch_flag
-        batched_data["original_size"] = torch.tensor([img.size for img in samples["image"]])
+        batched_data["original_size"] = torch.tensor(
+            [(img.height, img.width) for img in samples["image"]]
+        )
 
         return batched_data
 
     @override
     def compute_loss(self, batch: dict[str, Any]) -> torch.Tensor:
-        dtype = self.state.weight_dtype
+        dtype = self.get_training_dtype()
         prompt_embeds = batch["prompt_embedding"]
         latent = batch["encoded_image"]
+        image_rotary_emb = batch["image_rotary_emb"]
         batch_size, text_seqlen, text_embedding_dim = prompt_embeds.shape
         batch_size, num_channels, height, width = latent.shape
 
@@ -137,39 +175,19 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
 
         original_size = batch["original_size"]
 
-        # prepare sigmas
-        scheduler = self.components.scheduler
-        sigmas = torch.linspace(
-            scheduler.sigma_min,
-            scheduler.sigma_max,
-            scheduler.config.num_train_timesteps,
-            device=self.accelerator.device,
-        )
-
-        m = (vtoken_seq_len / scheduler.config.base_image_seq_len) ** 0.5
-        mu = m * scheduler.config.max_shift + scheduler.config.base_shift
-        mu = mu.unsqueeze(1)
-        sigmas = mu / (mu + (1 / sigmas - 1))
-        sigmas = torch.flip(sigmas, dims=[1])
-        sigmas = torch.cat([sigmas, torch.zeros((batch_size, 1), device=sigmas.device)], dim=1)
-        self.components.scheduler.sigmas = sigmas
-
-        timestep = torch.randint(
-            0,
-            scheduler.config.num_train_timesteps,
-            (batch_size,),
-            device=self.accelerator.device,
-        )
+        num_train_timesteps = self.components.scheduler.config.num_train_timesteps
+        sigmas = self.get_sigmas(batch_size, vtoken_seq_len)
+        timestep = self.get_timestep(batch_size, num_train_timesteps)
 
         noise = torch.randn_like(latent, dtype=dtype)
-        model_input, model_label = self.add_noise(latent, noise, timestep)
+        model_input, model_label = self.add_noise(latent, noise, timestep, sigmas)
+
         original_size = original_size.to(dtype=dtype, device=self.accelerator.device)
         target_size = original_size.clone().to(dtype=dtype, device=self.accelerator.device)
         crop_coords = torch.tensor(
             [[0, 0] for _ in range(batch_size)], dtype=dtype, device=self.accelerator.device
         )
 
-        # FIXME: add attn support for cogview4 transformer
         noise_pred_cond = self.components.transformer(
             hidden_states=model_input.to(dtype=dtype),
             encoder_hidden_states=prompt_embeds.to(dtype=dtype),
@@ -179,6 +197,7 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
             crop_coords=crop_coords,
             return_dict=False,
             attention_mask=attn_mask,
+            image_rotary_emb=image_rotary_emb,
         )[0]
 
         pixel_mask = batch["pixel_mask"]
@@ -187,35 +206,6 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         loss = loss.mean()
 
         return loss
-
-    @override
-    def add_noise(
-        self, latent: torch.Tensor, noise: torch.Tensor, timestep: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Add noise to the latent vector based on the timestep.
-
-        Args:
-            latent (torch.Tensor): The latent vector to add noise to.
-            noise (torch.Tensor): The noise tensor to add.
-            timestep (torch.Tensor): The current timestep.
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: The noisy latent vector that will be input to the model and the model label.
-        """
-        num_train_timesteps = self.components.scheduler.config.num_train_timesteps
-        # note: sigmas in scheduler is arranged in reversed order
-        index = num_train_timesteps - timestep
-        scale_factor = (
-            torch.gather(self.components.scheduler.sigmas, dim=1, index=index.unsqueeze(1))
-            .squeeze(1)
-            .view(-1, 1, 1, 1)
-            .to(latent.device)
-        )
-
-        model_input = latent * (1 - scale_factor) + noise * scale_factor
-        model_label = noise - latent
-        return model_input, model_label
 
 
 register("cogview4-6b", "lora-packing", Cogview4LoraPackingTrainer)

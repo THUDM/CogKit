@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import math
 from pathlib import Path
 from typing import Callable
 
@@ -248,3 +249,31 @@ def get_image_embedding(
         )
 
     return encoded_image
+
+
+def calculate_resize_dimensions(height: int, width: int, max_pixels: int) -> tuple[int, int]:
+    """
+    Calculate new dimensions for an image while maintaining aspect ratio and limiting total pixels.
+
+    Args:
+        height (int): Original height of the image
+        width (int): Original width of the image
+        max_pixels (int): Maximum number of pixels allowed
+
+    Returns:
+        Tuple[int, int]: New (width, height) dimensions
+    """
+    current_pixels = width * height
+
+    # If current pixel count is already below max, return original dimensions
+    if current_pixels <= max_pixels:
+        return height, width
+
+    # Calculate scaling factor to maintain aspect ratio
+    scale = math.sqrt(max_pixels / current_pixels)
+
+    # Calculate new dimensions
+    new_height = int(height * scale)
+    new_width = int(width * scale)
+
+    return new_height, new_width
