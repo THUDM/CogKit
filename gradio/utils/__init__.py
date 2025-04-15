@@ -8,7 +8,7 @@ from .io import (
     resolve_path,
 )
 from .logging import get_logger
-from .misc import flatten_dict, get_resolutions
+from .misc import get_resolutions
 from .task import BaseTask
 
 __all__ = [
@@ -22,5 +22,4 @@ __all__ = [
     "resolve_path",
     "BaseTask",
     "get_resolutions",
-    "flatten_dict",
 ]
