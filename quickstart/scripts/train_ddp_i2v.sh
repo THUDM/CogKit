@@ -30,16 +30,12 @@ TRAIN_ARGS=(
     --batch_size 1
     --gradient_accumulation_steps 1
     --mixed_precision "bf16"  # ["no", "fp16"]
-    --learning_rate 2e-5
+    --learning_rate 5e-5
 
     # Note:
     #  for CogVideoX series models, number of training frames should be **8N+1**
     #  for CogVideoX1.5 series models, number of training frames should be **16N+1**
     --train_resolution "81x768x1360"  # (frames x height x width)
-
-    # enable --low_vram will slow down validation speed and enable quantization during training
-    # Note: --low_vram currently does not support multi-GPU training
-    --low_vram false
 )
 
 # System Configuration

@@ -27,7 +27,7 @@ TRAIN_ARGS=(
     --seed 42  # random seed
     --train_epochs 1  # number of training epochs
 
-    --learning_rate 2e-5
+    --learning_rate 5e-5
 
     #########   Please keep consistent with deepspeed config file ##########
     --batch_size 1
