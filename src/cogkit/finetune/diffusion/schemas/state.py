@@ -4,6 +4,8 @@
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from cogkit.finetune.base import BaseState
 
 
@@ -15,9 +17,10 @@ class DiffusionState(BaseState):
     train_resolution: tuple[int, int, int] | tuple[int, int]
 
     # packing realted
-    max_vtoken_length: int | None = None
     training_seq_length: int | None = None
 
     validation_prompts: list[str] = []
     validation_images: list[Path | None] = []
     validation_videos: list[Path | None] = []
+
+    negative_prompt_embeds: torch.Tensor | None = None

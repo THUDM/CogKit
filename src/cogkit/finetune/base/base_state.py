@@ -8,7 +8,6 @@ class BaseState(BaseModel):
 
     weight_dtype: torch.dtype = torch.float32  # dtype for mixed precision training
     num_trainable_parameters: int = 0
-    overwrote_max_train_steps: bool = False
     num_update_steps_per_epoch: int = 0
     total_batch_size_count: int = 0
 

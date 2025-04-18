@@ -15,7 +15,7 @@ class MeanFilter(nn.Module):
 
         self.weight = nn.Parameter(weight, requires_grad=False)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, channels, height, width = x.shape
 
         if channels != self.in_channels:

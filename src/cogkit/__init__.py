@@ -8,6 +8,9 @@ from cogkit.utils import (
     load_lora_checkpoint,
     load_pipeline,
     unload_lora_checkpoint,
+    inject_lora,
+    save_lora,
+    unload_lora,
 )
 
 __all__ = [
@@ -18,4 +21,7 @@ __all__ = [
     "unload_lora_checkpoint",
     "guess_generation_mode",
     "GenerationMode",
+    "inject_lora",
+    "save_lora",
+    "unload_lora",
 ]

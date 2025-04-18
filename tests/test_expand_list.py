@@ -1,6 +1,4 @@
-import pytest
-
-from cogkit.finetune.utils import expand_list
+from cogkit.utils import expand_list
 
 
 class TestExpandList:
@@ -29,12 +27,22 @@ class TestExpandList:
         expected_output = {"a": [1, 3], "b": [2, 4], "c": [5]}
         assert expand_list(input_data) == expected_output
 
-    def test_non_list_values(self):
-        input_data = [{"a": 1}]
-        with pytest.raises(TypeError):
-            expand_list(input_data)
-
     def test_empty_values(self):
         input_data = [{"a": [], "b": [1]}, {"a": [2], "b": []}]
         expected_output = {"a": [2], "b": [1]}
+        assert expand_list(input_data) == expected_output
+
+    def test_only_list_values(self):
+        input_data = [{"a": ["x", "y"]}, {"b": ["z"]}, {"a": ["w"]}]
+        expected_output = {"a": ["x", "y", "w"], "b": ["z"]}
+        assert expand_list(input_data) == expected_output
+
+    def test_only_single_values(self):
+        input_data = [{"a": 1, "b": 2}, {"a": 3, "c": 4}]
+        expected_output = {"a": [1, 3], "b": [2], "c": [4]}
+        assert expand_list(input_data) == expected_output
+
+    def test_mixed_list_and_single_values(self):
+        input_data = [{"a": ["x", "y"], "b": 1}, {"a": 2, "b": ["z", "w"]}]
+        expected_output = {"a": ["x", "y", 2], "b": [1, "z", "w"]}
         assert expand_list(input_data) == expected_output

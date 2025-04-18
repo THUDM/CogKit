@@ -37,6 +37,7 @@ class BaseArgs(BaseModel):
     gradient_accumulation_steps: int = 1
 
     mixed_precision: Literal["no", "fp16", "bf16"]
+    low_vram: bool = False
 
     learning_rate: float = 2e-5
     optimizer: str = "adamw"
@@ -47,8 +48,8 @@ class BaseArgs(BaseModel):
     weight_decay: float = 1e-4
     max_grad_norm: float = 1.0
 
-    lr_scheduler: str = "constant_with_warmup"
-    lr_warmup_steps: int = 100
+    lr_scheduler: str = "linear"
+    lr_warmup_ratio: float = 0.01
     lr_num_cycles: int = 1
     lr_power: float = 1.0
 
@@ -66,6 +67,12 @@ class BaseArgs(BaseModel):
     ########## Validation ##########
     do_validation: bool = False
     validation_steps: int | None  # if set, should be a multiple of checkpointing_steps
+
+    @field_validator("low_vram")
+    def validate_low_vram(cls, v: bool, info: ValidationInfo) -> bool:
+        if v and info.data.get("training_type") != "lora":
+            raise ValueError("low_vram can only be True when training_type is 'lora'")
+        return v
 
     @field_validator("validation_steps")
     def validate_validation_steps(cls, v: int | None, info: ValidationInfo) -> int | None:
@@ -114,18 +121,21 @@ class BaseArgs(BaseModel):
         parser.add_argument("--max_grad_norm", type=float, default=1.0)
 
         # Learning rate scheduler
-        parser.add_argument("--lr_scheduler", type=str, default="constant_with_warmup")
-        parser.add_argument("--lr_warmup_steps", type=int, default=100)
+        parser.add_argument("--lr_scheduler", type=str, default="linear")
+        parser.add_argument("--lr_warmup_ratio", type=float, default=0.01)
         parser.add_argument("--lr_num_cycles", type=int, default=1)
         parser.add_argument("--lr_power", type=float, default=1.0)
 
         # Data loading
         parser.add_argument("--num_workers", type=int, default=8)
-        parser.add_argument("--pin_memory", type=bool, default=True)
+        parser.add_argument("--pin_memory", type=lambda x: x.lower() == "true", default=True)
 
         # Model configuration
         parser.add_argument("--mixed_precision", type=str, default="no")
-        parser.add_argument("--gradient_checkpointing", type=bool, default=True)
+        parser.add_argument("--low_vram", type=lambda x: x.lower() == "true", default=False)
+        parser.add_argument(
+            "--gradient_checkpointing", type=lambda x: x.lower() == "true", default=True
+        )
         parser.add_argument("--nccl_timeout", type=int, default=1800)
 
         # LoRA parameters

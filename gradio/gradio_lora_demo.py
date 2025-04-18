@@ -11,7 +11,6 @@ from slugify import slugify
 from torchvision.io import write_video
 from utils import (
     BaseTask,
-    flatten_dict,
     get_dataset_dirs,
     get_logger,
     get_lora_checkpoint_rootdir,
@@ -24,6 +23,7 @@ from utils import (
 
 import gradio as gr
 from cogkit import GenerationMode, guess_generation_mode
+from cogkit.utils import flatten_dict
 
 # =======================  global state  ====================
 

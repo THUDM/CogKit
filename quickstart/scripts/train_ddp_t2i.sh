@@ -21,10 +21,6 @@ OUTPUT_ARGS=(
 # Data Configuration
 DATA_ARGS=(
     --data_root "/path/to/data"
-
-    # Note:
-    #   For CogView4 series models, height and width should be **32N** (multiple of 32)
-    --train_resolution "1024x1024"  # (height x width)
 )
 
 # Training Configuration
@@ -32,15 +28,31 @@ TRAIN_ARGS=(
     --seed 42  # random seed
     --train_epochs 1  # number of training epochs
     --batch_size 1
+
     --gradient_accumulation_steps 1
+
+    # Note: For CogView4 series models, height and width should be **32N** (multiple of 32)
+    --train_resolution "1024x1024"  # (height x width)
+
+    # When enable_packing is true, training will use the native image resolution
+    # (otherwise all images will be resized to train_resolution, which may distort the original aspect ratio).
+    #
+    # IMPORTANT: When changing enable_packing from true to false (or vice versa),
+    # make sure to clear the .cache directories in your data_root/train and data_root/test folders if they exist.
+    --enable_packing false
+
     --mixed_precision "bf16"  # ["no", "fp16"]
-    --learning_rate 2e-5
+    --learning_rate 5e-5
+
+    # enable --low_vram will slow down validation speed and enable quantization during training
+    # Note: --low_vram currently does not support multi-GPU training
+    --low_vram false
 )
 
 # System Configuration
 SYSTEM_ARGS=(
     --num_workers 8
-    --pin_memory True
+    --pin_memory true
     --nccl_timeout 1800
 )
 

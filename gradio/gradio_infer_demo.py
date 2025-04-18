@@ -119,7 +119,7 @@ def update_task(hf_model_id: str) -> Tuple[gr.Dropdown, gr.Component]:
 def update_subcheckpoints(checkpoint_dir):
     """Get subdirectories for the selected checkpoint directory."""
     if checkpoint_dir == "None":
-        return gr.Dropdown(choices=[], interactive=False, visible=False)
+        return gr.Dropdown(choices=["None"], value="None", interactive=False, visible=False)
 
     # Get the full path to the checkpoint directory
     full_checkpoint_path = os.path.join(checkpoint_rootdir, checkpoint_dir)
@@ -138,7 +138,7 @@ def update_subcheckpoints(checkpoint_dir):
 
     if not subdirs:
         # If there are no subdirectories, hide the dropdown
-        return gr.Dropdown(choices=[], interactive=False, visible=False)
+        return gr.Dropdown(choices=["None"], value="None", interactive=False, visible=False)
 
     # Show dropdown with available subdirectories
     return gr.Dropdown(
@@ -183,6 +183,7 @@ def load_model_and_generate(
         )
 
     # Load LoRA weights if selected
+    unload_lora_checkpoint(pipeline)
     if lora_checkpoint != "None":
         progress(0.3, desc="Loading LoRA weights...")
         # Construct the full path to the specific checkpoint
@@ -192,8 +193,6 @@ def load_model_and_generate(
             lora_path = lora_checkpoint
         logger.info(f"Loading LoRA weights from {lora_path}")
         load_lora_checkpoint(pipeline, lora_path)
-    else:
-        unload_lora_checkpoint(pipeline)
 
     # Generate content based on task
     progress(0.5, desc="Generating content...")
@@ -300,7 +299,7 @@ with gr.Blocks() as demo:
                 guidance_scale = gr.Slider(
                     minimum=1.0,
                     maximum=15.0,
-                    value=6.0,
+                    value=5.0,
                     step=0.1,
                     label="Guidance Scale",
                     info="Higher values increase prompt adherence",
