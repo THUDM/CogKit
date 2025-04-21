@@ -11,7 +11,11 @@ from typing_extensions import override
 from cogkit.finetune import register
 from cogkit.finetune.diffusion.schemas import DiffusionComponents
 from cogkit.finetune.diffusion.trainer import DiffusionTrainer
-from cogkit.finetune.utils import process_prompt_attention_mask, unwrap_model
+from cogkit.finetune.utils import (
+    process_prompt_attention_mask,
+    unwrap_model,
+    replace_attn_processor,
+)
 from cogkit.utils import load_lora_checkpoint, unload_lora_checkpoint
 from diffusers import (
     AutoencoderKL,
@@ -19,6 +23,7 @@ from diffusers import (
     CogView4Transformer2DModel,
     FlowMatchEulerDiscreteScheduler,
 )
+from diffusers.models.transformers.transformer_cogview4 import CogView4TrainingAttnProcessor
 
 
 class Cogview4Trainer(DiffusionTrainer):
@@ -68,6 +73,7 @@ class Cogview4Trainer(DiffusionTrainer):
                 quantization_config=nf4_config,
                 device=self.accelerator.device,
             )
+        replace_attn_processor(components.transformer, CogView4TrainingAttnProcessor())
 
         ### vae
         components.vae = AutoencoderKL.from_pretrained(
@@ -98,6 +104,7 @@ class Cogview4Trainer(DiffusionTrainer):
                 subfolder="transformer",
                 torch_dtype=self.state.weight_dtype,
             )
+            replace_attn_processor(transformer, CogView4TrainingAttnProcessor())
             pipe = CogView4Pipeline(
                 tokenizer=self.components.tokenizer,
                 text_encoder=self.components.text_encoder,
@@ -170,7 +177,7 @@ class Cogview4Trainer(DiffusionTrainer):
                 - 'prompt_embedding': Tensor of shape [batch_size, sequence_length, embedding_dim]
                 - 'image': List of image tensors (will be empty during validation)
                 - 'encoded_image': Tensor of shape [batch_size, channels, height, width] (None during validation)
-                - 'attention_mask': Dictionary with 'text_embedding_attn_mask' for transformer attention
+                - 'text_attn_mask': Tensor of shape [batch_size, sequence_length] for transformer attention
 
         Note:
             This function assumes that all images in the batch have the same resolution.
@@ -180,7 +187,7 @@ class Cogview4Trainer(DiffusionTrainer):
             "prompt_embedding": [],
             "image": [],
             "encoded_image": [],
-            "attention_mask": {"text_embedding_attn_mask": None},
+            "text_attn_mask": None,
         }
 
         for sample in samples:
@@ -206,15 +213,12 @@ class Cogview4Trainer(DiffusionTrainer):
         )
 
         ret["prompt_embedding"] = prompt_embedding
-        ret["attention_mask"]["text_embedding_attn_mask"] = prompt_attention_mask
+        ret["text_attn_mask"] = prompt_attention_mask
 
         ret["encoded_image"] = torch.stack(ret["encoded_image"]) if ret["encoded_image"] else None
 
         # shape of prompt_embedding: [batch_size, sequence_length, embedding_dim(4096)]
-        assert (
-            ret["attention_mask"]["text_embedding_attn_mask"].shape
-            == ret["prompt_embedding"].shape[:2]
-        )
+        assert ret["text_attn_mask"].shape == ret["prompt_embedding"].shape[:2]
 
         return ret
 
@@ -232,7 +236,7 @@ class Cogview4Trainer(DiffusionTrainer):
         ) // (self.state.transformer_config.patch_size**2)
         image_seq_len = torch.tensor([image_seq_len], device=self.accelerator.device)
 
-        attention_mask = batch["attention_mask"]
+        text_attn_mask = batch["text_attn_mask"]
 
         num_train_timesteps = self.components.scheduler.config.num_train_timesteps
         sigmas = self.get_sigmas(batch_size, image_seq_len)
@@ -263,7 +267,7 @@ class Cogview4Trainer(DiffusionTrainer):
             target_size=target_size,
             crop_coords=crop_coords,
             return_dict=False,
-            attention_mask=attention_mask,
+            attention_kwargs={"text_attn_mask": text_attn_mask},
         )[0]
 
         loss = torch.mean((noise_pred_cond - model_label) ** 2, dim=(1, 2, 3))

@@ -1,8 +1,9 @@
 import math
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import torch
 from transformers import AutoTokenizer
+from diffusers.models.attention_processor import Attention
 
 from .filters import MeanFilter
 
@@ -124,3 +125,9 @@ def process_latent_attention_mask(
     mask_assert(vtoken_attention_mask)
 
     return padded_latent, vtoken_attention_mask, pixel_mask
+
+
+def replace_attn_processor(model: torch.nn.Module, attn_processor_obj: Any) -> None:
+    for name, submodule in model.named_modules():
+        if isinstance(submodule, Attention):
+            submodule.processor = attn_processor_obj

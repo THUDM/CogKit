@@ -99,10 +99,10 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
                 - prompt_embedding: Batched prompt embeddings
                 - encoded_image: Batched encoded image latents
                 - image_rotary_emb: Rotary embeddings for images
-                - attention_mask: Dictionary containing:
+                - attention_kwargs: Dictionary containing:
                     - batch_flag: Indices indicating which sample each item belongs to
-                    - text_embedding_attn_mask: Attention mask for text embeddings
-                    - latent_embedding_attn_mask: Attention mask for latent embeddings
+                    - text_attn_mask: Attention mask for text embeddings
+                    - latent_attn_mask: Attention mask for latent embeddings
                 - pixel_mask: Mask for valid pixel regions
                 - original_size: Original dimensions of the images
 
@@ -114,10 +114,10 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
             "prompt_embedding": None,
             "encoded_image": None,
             "image_rotary_emb": None,
-            "attention_mask": {
+            "attention_kwargs": {
                 "batch_flag": None,
-                "text_embedding_attn_mask": None,
-                "latent_embedding_attn_mask": None,
+                "text_attn_mask": None,
+                "latent_attn_mask": None,
             },
             "pixel_mask": None,
             "original_size": None,
@@ -144,15 +144,15 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
 
         # Store in batched_data
         batched_data["prompt_embedding"] = prompt_embedding
-        batched_data["attention_mask"]["text_embedding_attn_mask"] = prompt_attention_mask
+        batched_data["attention_kwargs"]["text_attn_mask"] = prompt_attention_mask
         batched_data["encoded_image"] = padded_latent
         batched_data["image_rotary_emb"] = image_rotary_emb
-        batched_data["attention_mask"]["latent_embedding_attn_mask"] = (
-            vtoken_attention_mask.reshape(len(batch_flag), -1)
+        batched_data["attention_kwargs"]["latent_attn_mask"] = vtoken_attention_mask.reshape(
+            len(batch_flag), -1
         )
         batched_data["pixel_mask"] = pixel_mask
 
-        batched_data["attention_mask"]["batch_flag"] = batch_flag
+        batched_data["attention_kwargs"]["batch_flag"] = batch_flag
         batched_data["original_size"] = torch.tensor(
             [(img.height, img.width) for img in samples["image"]]
         )
@@ -168,8 +168,8 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         batch_size, text_seqlen, text_embedding_dim = prompt_embeds.shape
         batch_size, num_channels, height, width = latent.shape
 
-        attn_mask = batch["attention_mask"]
-        latent_attention_mask = attn_mask["latent_embedding_attn_mask"].float()
+        attention_kwargs = batch["attention_kwargs"]
+        latent_attention_mask = attention_kwargs["latent_attn_mask"].float()
         assert latent_attention_mask.dim() == 2
         vtoken_seq_len = torch.sum(latent_attention_mask != 0, dim=1)
 
@@ -196,8 +196,8 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
             target_size=target_size,
             crop_coords=crop_coords,
             return_dict=False,
-            attention_mask=attn_mask,
             image_rotary_emb=image_rotary_emb,
+            attention_kwargs=attention_kwargs,
         )[0]
 
         pixel_mask = batch["pixel_mask"]
