@@ -24,7 +24,7 @@ class ImageGenerationService(object):
             torch_dtype = torch.bfloat16 if settings.dtype == "bfloat16" else torch.float32
             cogview4_pl = load_pipeline(
                 model_id_or_path=settings.cogview4_path,
-                lora_model_id_or_path=None,
+                lora_model_id_or_path=settings.lora_dir,
                 transformer_path=settings.cogview4_transformer_path,
                 dtype=torch_dtype,
             )
@@ -66,7 +66,7 @@ class ImageGenerationService(object):
                     f"Loading LORA weights from {adapter_name} and unload previous weights {self._current_lora[model]}"
                 )
                 unload_lora_checkpoint(self._models[model])
-                load_lora_checkpoint(self._models[model], lora_path, lora_scale)
+                load_lora_checkpoint(self._models[model], lora_path)
             else:
                 _logger.info(f"Unloading LORA weights {self._current_lora[model]}")
                 unload_lora_checkpoint(self._models[model])
