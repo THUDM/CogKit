@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from cogkit.samplers import NaivePackingSampler
+from cogkit.finetune.samplers import NaivePackingSampler
 
 
 # ==============================================================================
