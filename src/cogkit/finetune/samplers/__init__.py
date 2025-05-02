@@ -1,3 +1,3 @@
-from .packing_sampler import NaivePackingSampler
+from .packing_sampler import DistPackingSampler, NaivePackingSampler
 
-__all__ = ["NaivePackingSampler"]
+__all__ = ["NaivePackingSampler", "DistPackingSampler"]
