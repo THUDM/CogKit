@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 # using TYPE_CHECKING to avoid circular import
 if TYPE_CHECKING:
@@ -46,26 +46,26 @@ def show_supported_models():
 
 
 def get_model_cls(
-    model_type: str, training_type: Literal["lora", "sft"], use_packing: bool = False
+    model_name: str, training_type: Literal["lora", "sft"], use_packing: bool = False
 ) -> "BaseTrainer":
     """Get the trainer class for a specific model and training type."""
-    if model_type not in SUPPORTED_MODELS:
-        print(f"\nModel '{model_type}' is not supported.")
+    if model_name not in SUPPORTED_MODELS:
+        print(f"\nModel '{model_name}' is not supported.")
         print("\nSupported models are:")
         for supported_model in SUPPORTED_MODELS:
             print(f"  • {supported_model}")
-        raise ValueError(f"Model '{model_type}' is not supported")
+        raise ValueError(f"Model '{model_name}' is not supported")
 
     if use_packing:
         training_type = f"{training_type}-packing"
 
-    if training_type not in SUPPORTED_MODELS[model_type]:
-        print(f"\nTraining type '{training_type}' is not supported for model '{model_type}'.")
-        print(f"\nSupported training types for '{model_type}' are:")
-        for supported_type in SUPPORTED_MODELS[model_type]:
+    if training_type not in SUPPORTED_MODELS[model_name]:
+        print(f"\nTraining type '{training_type}' is not supported for model '{model_name}'.")
+        print(f"\nSupported training types for '{model_name}' are:")
+        for supported_type in SUPPORTED_MODELS[model_name]:
             print(f"  • {supported_type}")
         raise ValueError(
-            f"Training type '{training_type}' is not supported for model '{model_type}'"
+            f"Training type '{training_type}' is not supported for model '{model_name}'"
         )
 
-    return SUPPORTED_MODELS[model_type][training_type]
+    return SUPPORTED_MODELS[model_name][training_type]
