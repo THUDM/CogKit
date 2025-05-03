@@ -83,7 +83,10 @@ def guess_generation_mode(
     if isinstance(pipeline_or_path, str):
         pl_cls_name = get_pipeline_meta(pipeline_or_path)["cls_name"]
     else:
-        pl_cls_name = pipeline_or_path.__class__.__name__
+        if isinstance(pipeline_or_path, type):
+            pl_cls_name = pipeline_or_path.__name__
+        else:
+            pl_cls_name = pipeline_or_path.__class__.__name__
 
     if pl_cls_name not in _SUPPORTED_PIPELINE:
         err_msg = f"The pipeline '{pl_cls_name}' is not supported."
