@@ -26,6 +26,7 @@ from diffusers.utils import recurse_remove_peft_layers
 
 # Standard filename for LoRA adapter weights
 _LORA_WEIGHT_NAME = "adapter_model.safetensors"
+_ADAPTER_NAME = "default"
 
 
 def _get_lora_config() -> LoraConfig:
@@ -37,7 +38,9 @@ def _get_lora_config() -> LoraConfig:
     )
 
 
-def inject_lora(model, lora_dir_or_state_dict: str | Path | None = None) -> None:
+def inject_lora(
+    model, lora_dir_or_state_dict: str | Path | None = None, adapter_name: str = _ADAPTER_NAME
+) -> None:
     """
     Inject LoRA adapters into the model.
 
@@ -49,9 +52,10 @@ def inject_lora(model, lora_dir_or_state_dict: str | Path | None = None) -> None
         model: The model to inject LoRA adapters into
         lora_dir_or_state_dict: Path to a LoRA checkpoint directory, a state dict,
                                 or None for random initialization
+        adapter_name: The name of the adapter to inject
     """
     transformer_lora_config = _get_lora_config()
-    inject_adapter_in_model(transformer_lora_config, model)
+    inject_adapter_in_model(transformer_lora_config, model, adapter_name=adapter_name)
     if lora_dir_or_state_dict is None:
         return
 
@@ -65,7 +69,7 @@ def inject_lora(model, lora_dir_or_state_dict: str | Path | None = None) -> None
     else:
         peft_state_dict = lora_dir_or_state_dict
 
-    set_peft_model_state_dict(model, peft_state_dict)
+    set_peft_model_state_dict(model, peft_state_dict, adapter_name=adapter_name)
 
 
 def save_lora(model, lora_dir: str | Path) -> None:
