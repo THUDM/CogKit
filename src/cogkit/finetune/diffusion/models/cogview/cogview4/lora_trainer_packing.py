@@ -41,7 +41,7 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         self.ROPE_DIM = transformer.config.rope_axes_dim
 
         patch_size = self.PATCH_SIZE
-        height, width = self.args.train_resolution
+        height, width = self.uargs.train_resolution
         sample_height, sample_width = (
             height // self.DOWNSAMPLER_FACTOR,
             width // self.DOWNSAMPLER_FACTOR,
@@ -161,9 +161,9 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
 
     @override
     def compute_loss(self, batch: dict[str, Any]) -> torch.Tensor:
-        dtype = self.get_training_dtype()
-        prompt_embeds = batch["prompt_embedding"]
-        latent = batch["encoded_image"]
+        device, dtype = self.state.device, self.state.weight_dtype
+        prompt_embeds = batch["prompt_embedding"].to(device)
+        latent = batch["encoded_image"].to(device)
         image_rotary_emb = batch["image_rotary_emb"]
         batch_size, text_seqlen, text_embedding_dim = prompt_embeds.shape
         batch_size, num_channels, height, width = latent.shape
@@ -182,11 +182,9 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
         noise = torch.randn_like(latent, dtype=dtype)
         model_input, model_label = self.add_noise(latent, noise, timestep, sigmas)
 
-        original_size = original_size.to(dtype=dtype, device=self.accelerator.device)
-        target_size = original_size.clone().to(dtype=dtype, device=self.accelerator.device)
-        crop_coords = torch.tensor(
-            [[0, 0] for _ in range(batch_size)], dtype=dtype, device=self.accelerator.device
-        )
+        original_size = original_size.to(dtype=dtype, device=device)
+        target_size = original_size.clone().to(dtype=dtype, device=device)
+        crop_coords = torch.tensor([[0, 0] for _ in range(batch_size)], dtype=dtype, device=device)
 
         noise_pred_cond = self.components.transformer(
             hidden_states=model_input.to(dtype=dtype),
@@ -200,7 +198,7 @@ class Cogview4LoraPackingTrainer(Cogview4Trainer):
             attention_kwargs=attention_kwargs,
         )[0]
 
-        pixel_mask = batch["pixel_mask"]
+        pixel_mask = batch["pixel_mask"].to(device)
         loss = torch.sum(((noise_pred_cond - model_label) ** 2) * pixel_mask, dim=(1, 2, 3))
         loss = loss / torch.sum(pixel_mask, dim=(1, 2, 3))
         loss = loss.mean()

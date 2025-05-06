@@ -14,13 +14,13 @@ class DiffusionState(BaseState):
 
     # for video input, train_resolution = (frames, height, width)
     # for image input, train_resolution = (height, width)
-    train_resolution: tuple[int, int, int] | tuple[int, int]
+    train_resolution: tuple[int, int, int] | tuple[int, int] = ()
 
-    # packing realted
-    training_seq_length: int | None = None
+    negative_prompt_embeds: torch.Tensor | None = None
 
     validation_prompts: list[str] = []
     validation_images: list[Path | None] = []
     validation_videos: list[Path | None] = []
 
-    negative_prompt_embeds: torch.Tensor | None = None
+    # packing realted
+    training_seq_length: int | None = None

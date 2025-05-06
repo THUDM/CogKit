@@ -1,101 +1,107 @@
 import json
+from pathlib import Path
 from typing import Any
 
 import torch
+import torch.distributed as dist
 import wandb
 from accelerate import cpu_offload
-from accelerate.utils import gather_object
+from torch.utils.data import DistributedSampler
 from PIL import Image
 from typing_extensions import override
 
 from cogkit.finetune.base import BaseTrainer
-from cogkit.samplers import NaivePackingSampler
-from cogkit.utils import expand_list
+from cogkit.finetune.samplers import DistPackingSampler
+from cogkit.utils import expand_list, guess_generation_mode
+from cogkit.types import GenerationMode
 from diffusers.pipelines import DiffusionPipeline
 from diffusers.utils.export_utils import export_to_video
 
 from ..utils import (
     free_memory,
     get_memory_statistics,
-    unload_model,
+    gather_object,
+    mkdir,
 )
-from .constants import LOG_LEVEL, LOG_NAME
 from .schemas import DiffusionArgs, DiffusionComponents, DiffusionState
 
 
 class DiffusionTrainer(BaseTrainer):
-    # If set, should be a list of components to unload (refer to `Components``)
-    UNLOAD_LIST: list[str] = None
-    LOG_NAME: str = LOG_NAME
-    LOG_LEVEL: str = LOG_LEVEL
+    @override
+    def __init__(self, uargs_fpath: str | Path) -> None:
+        super().__init__(uargs_fpath)
+        self.uargs: DiffusionArgs
+        self.state: DiffusionState
+        self.components: DiffusionComponents
 
     @override
-    def _init_args(self) -> DiffusionArgs:
-        return DiffusionArgs.parse_args()
+    def _init_args(self, uargs_fpath: Path) -> DiffusionArgs:
+        return DiffusionArgs.parse_from_yaml(uargs_fpath)
 
     @override
     def _init_state(self) -> DiffusionState:
-        return DiffusionState(
-            weight_dtype=self.get_training_dtype(),
-            train_resolution=self.args.train_resolution,
-        )
+        state = DiffusionState(**super()._init_state().model_dump())
+        state.train_resolution = self.uargs.train_resolution
+        return state
 
     @override
     def prepare_models(self) -> None:
         if self.components.vae is not None:
-            if self.args.enable_slicing:
+            if self.uargs.enable_slicing:
                 self.components.vae.enable_slicing()
-            if self.args.enable_tiling:
+            if self.uargs.enable_tiling:
                 self.components.vae.enable_tiling()
 
         self.state.transformer_config = self.components.transformer.config
 
     @override
     def prepare_dataset(self) -> None:
-        if self.args.model_type == "i2v":
-            from cogkit.datasets import BaseI2VDataset, I2VDatasetWithResize
+        generation_mode = guess_generation_mode(self.components.pipeline_cls)
+        match generation_mode:
+            case GenerationMode.TextToImage:
+                from cogkit.finetune.datasets import (
+                    T2IDatasetWithFactorResize,
+                    T2IDatasetWithPacking,
+                    T2IDatasetWithResize,
+                )
 
-            dataset_cls = I2VDatasetWithResize
-            if self.args.enable_packing:
-                dataset_cls = BaseI2VDataset
-                raise NotImplementedError("Packing for I2V is not implemented")
+                dataset_cls = T2IDatasetWithResize
+                if self.uargs.enable_packing:
+                    dataset_cls = T2IDatasetWithFactorResize
+                    dataset_cls_packing = T2IDatasetWithPacking
 
-        elif self.args.model_type == "t2v":
-            from cogkit.datasets import BaseT2VDataset, T2VDatasetWithResize
+            case GenerationMode.TextToVideo:
+                from cogkit.finetune.datasets import BaseT2VDataset, T2VDatasetWithResize
 
-            dataset_cls = T2VDatasetWithResize
-            if self.args.enable_packing:
-                dataset_cls = BaseT2VDataset
-                raise NotImplementedError("Packing for T2V is not implemented")
+                dataset_cls = T2VDatasetWithResize
+                if self.uargs.enable_packing:
+                    dataset_cls = BaseT2VDataset
+                    raise NotImplementedError("Packing for T2V is not implemented")
 
-        elif self.args.model_type == "t2i":
-            from cogkit.datasets import (
-                T2IDatasetWithFactorResize,
-                T2IDatasetWithPacking,
-                T2IDatasetWithResize,
-            )
+            case GenerationMode.ImageToVideo:
+                from cogkit.finetune.datasets import BaseI2VDataset, I2VDatasetWithResize
 
-            dataset_cls = T2IDatasetWithResize
-            if self.args.enable_packing:
-                dataset_cls = T2IDatasetWithFactorResize
-                dataset_cls_packing = T2IDatasetWithPacking
+                dataset_cls = I2VDatasetWithResize
+                if self.uargs.enable_packing:
+                    dataset_cls = BaseI2VDataset
+                    raise NotImplementedError("Packing for I2V is not implemented")
 
-        else:
-            raise ValueError(f"Invalid model type: {self.args.model_type}")
+            case _:
+                raise ValueError(f"Invalid generation mode: {generation_mode}")
 
         additional_args = {
-            "device": self.accelerator.device,
+            "device": self.state.device,
             "trainer": self,
         }
 
         self.train_dataset = dataset_cls(
-            **(self.args.model_dump()),
+            **(self.uargs.model_dump()),
             **additional_args,
             using_train=True,
         )
-        if self.args.do_validation:
+        if self.uargs.do_validation:
             self.test_dataset = dataset_cls(
-                **(self.args.model_dump()),
+                **(self.uargs.model_dump()),
                 **additional_args,
                 using_train=False,
             )
@@ -103,15 +109,15 @@ class DiffusionTrainer(BaseTrainer):
         ### Prepare VAE and text encoder for encoding
         self.components.vae.requires_grad_(False)
         self.components.text_encoder.requires_grad_(False)
-        self.components.vae.to(self.accelerator.device, dtype=self.state.weight_dtype)
-        if self.args.low_vram:  # offload text encoder to CPU
-            cpu_offload(self.components.text_encoder, self.accelerator.device)
+        self.components.vae.to(self.state.device, dtype=self.state.weight_dtype)
+        if self.uargs.low_vram:  # offload text encoder to CPU
+            cpu_offload(self.components.text_encoder, self.state.device)
         else:
-            self.components.text_encoder.to(self.accelerator.device, dtype=self.state.weight_dtype)
+            self.components.text_encoder.to(self.state.device, dtype=self.state.weight_dtype)
 
         ### Precompute embedding
         self.logger.info("Precomputing embedding ...")
-        self.state.negative_prompt_embeds = self.get_negtive_prompt_embeds()
+        self.state.negative_prompt_embeds = self.get_negtive_prompt_embeds().to(self.state.device)
 
         for dataset in [self.train_dataset, self.test_dataset]:
             if dataset is None:
@@ -121,28 +127,38 @@ class DiffusionTrainer(BaseTrainer):
                 collate_fn=self.collate_fn,
                 batch_size=1,
                 num_workers=0,
-                pin_memory=self.args.pin_memory,
+                pin_memory=self.uargs.pin_memory,
+                sampler=DistributedSampler(
+                    dataset,
+                    num_replicas=self.state.world_size,
+                    rank=self.state.global_rank,
+                    shuffle=False,
+                ),
             )
-            tmp_data_loader = self.accelerator.prepare_data_loader(tmp_data_loader)
             for _ in tmp_data_loader:
                 ...
 
-        self.accelerator.wait_for_everyone()
         self.logger.info("Precomputing embedding ... Done")
+        dist.barrier()
 
-        unload_model(self.components.vae)
-        if not self.args.low_vram:
-            unload_model(self.components.text_encoder)
+        self.components.vae = self.components.vae.to("cpu")
+        if not self.uargs.low_vram:
+            self.components.text_encoder = self.components.text_encoder.to("cpu")
         free_memory()
 
-        if not self.args.enable_packing:
+        if not self.uargs.enable_packing:
             self.train_data_loader = torch.utils.data.DataLoader(
                 self.train_dataset,
                 collate_fn=self.collate_fn,
-                batch_size=self.args.batch_size,
-                num_workers=self.args.num_workers,
-                pin_memory=self.args.pin_memory,
-                shuffle=True,
+                batch_size=self.uargs.batch_size,
+                num_workers=self.uargs.num_workers,
+                pin_memory=self.uargs.pin_memory,
+                sampler=DistributedSampler(
+                    self.train_dataset,
+                    num_replicas=self.state.world_size,
+                    rank=self.state.global_rank,
+                    shuffle=True,
+                ),
             )
         else:
             length_list = [self.sample_to_length(sample) for sample in self.train_dataset]
@@ -150,24 +166,31 @@ class DiffusionTrainer(BaseTrainer):
             self.train_data_loader = torch.utils.data.DataLoader(
                 self.train_dataset,
                 collate_fn=self.collate_fn_packing,
-                batch_size=self.args.batch_size,
-                num_workers=self.args.num_workers,
-                pin_memory=self.args.pin_memory,
-                sampler=NaivePackingSampler(
+                batch_size=self.uargs.batch_size,
+                num_workers=self.uargs.num_workers,
+                pin_memory=self.uargs.pin_memory,
+                sampler=DistPackingSampler(
                     length_list,
                     self.state.training_seq_length,
                     shuffle=True,
+                    world_size=self.state.world_size,
+                    global_rank=self.state.global_rank,
                 ),
             )
 
-        if self.args.do_validation:
+        if self.uargs.do_validation:
             self.test_data_loader = torch.utils.data.DataLoader(
                 self.test_dataset,
                 collate_fn=self.collate_fn,
                 batch_size=1,
-                num_workers=self.args.num_workers,
-                pin_memory=self.args.pin_memory,
-                shuffle=False,
+                num_workers=self.uargs.num_workers,
+                pin_memory=self.uargs.pin_memory,
+                sampler=DistributedSampler(
+                    self.test_dataset,
+                    num_replicas=self.state.world_size,
+                    rank=self.state.global_rank,
+                    shuffle=False,
+                ),
             )
 
     @override
@@ -179,7 +202,7 @@ class DiffusionTrainer(BaseTrainer):
             self.logger.warning("No validation samples found. Skipping validation.")
             return
 
-        self.components.transformer.eval()
+        # self.components.transformer.eval()
         torch.set_grad_enabled(False)
 
         memory_statistics = get_memory_statistics(self.logger)
@@ -190,25 +213,16 @@ class DiffusionTrainer(BaseTrainer):
         #####  Initialize pipeline  #####
         pipe = self.initialize_pipeline(ckpt_path=ckpt_path)
 
-        if self.state.using_deepspeed:
-            # Can't using model_cpu_offload in deepspeed,
-            # so we need to move all components in pipe to device
-            self.move_components_to_device(
-                dtype=self.state.weight_dtype,
-                device=self.accelerator.device,
-                ignore_list=["transformer"],
-            )
+        # if not using deepspeed, use model_cpu_offload to further reduce memory usage
+        # Or use pipe.enable_sequential_cpu_offload() to further reduce memory usage
+        if self.uargs.low_vram:
+            pipe.enable_sequential_cpu_offload(device=self.state.device)
         else:
-            # if not using deepspeed, use model_cpu_offload to further reduce memory usage
-            # Or use pipe.enable_sequential_cpu_offload() to further reduce memory usage
-            if self.args.low_vram:
-                pipe.enable_sequential_cpu_offload(device=self.accelerator.device)
-            else:
-                pipe.enable_model_cpu_offload(device=self.accelerator.device)
+            pipe.enable_model_cpu_offload(device=self.state.device)
 
-            # Convert all model weights to training dtype
-            # Note, this will change LoRA weights in self.components.transformer to training dtype, rather than keep them in fp32
-            pipe = pipe.to(dtype=self.state.weight_dtype)
+        # Convert all model weights to training dtype
+        # Note, this will change LoRA weights in self.components.transformer to training dtype, rather than keep them in fp32
+        pipe = pipe.to(dtype=self.state.weight_dtype)
 
         #################################
 
@@ -228,8 +242,7 @@ class DiffusionTrainer(BaseTrainer):
             encoded_video = batch.get("encoded_video", None)
 
             self.logger.debug(
-                f"Validating sample {i + 1}/{num_validation_samples} on process {self.accelerator.process_index}. Prompt: {prompt}",
-                main_process_only=False,
+                f"Validating sample {i + 1}/{num_validation_samples} on process {self.state.global_rank}. Prompt: {prompt}",
             )
             val_res = self.validation_step(
                 pipe=pipe,
@@ -244,9 +257,9 @@ class DiffusionTrainer(BaseTrainer):
             )
 
             artifacts = {}
-            val_path = self.args.output_dir / "validation_res" / f"validation-{step}"
-            val_path.mkdir(parents=True, exist_ok=True)
-            filename = f"artifact-process{self.accelerator.process_index}-batch{i}"
+            val_path = self.uargs.output_dir / "validation_res" / f"validation-{step}"
+            mkdir(val_path)
+            filename = f"artifact-process{self.state.global_rank}-batch{i}"
 
             image = val_res.get("image", None)
             video = val_res.get("video", None)
@@ -258,48 +271,38 @@ class DiffusionTrainer(BaseTrainer):
                 artifacts["image"] = wandb.Image(fpath, caption=prompt)
             if video:
                 fpath = str(val_path / f"{filename}.mp4")
-                export_to_video(video, fpath, fps=self.args.gen_fps)
+                export_to_video(video, fpath, fps=self.uargs.gen_fps)
                 artifacts["video"] = wandb.Video(fpath, caption=prompt)
 
             all_processes_artifacts.append(artifacts)
 
-        all_artifacts = gather_object(all_processes_artifacts)
-        all_artifacts = expand_list(all_artifacts)
+        if self.tracker is not None:
+            all_artifacts = gather_object(all_processes_artifacts)
+            all_artifacts = [item for sublist in all_artifacts for item in sublist]
+            all_artifacts = expand_list(all_artifacts)
+            self.tracker.log({"validation": all_artifacts}, step=step)
 
-        if self.accelerator.is_main_process:
-            tracker_key = "validation"
-            for tracker in self.accelerator.trackers:
-                if tracker.name == "wandb":
-                    tracker.log({tracker_key: all_artifacts}, step=step)
+        # =============  Clean up  =============
+        pipe.remove_all_hooks()
+        del pipe
+        # Load models except those not needed for training
+        self.move_components_to_device(
+            dtype=self.state.weight_dtype,
+            device=self.state.device,
+            ignore_list=self.UNLOAD_LIST,
+        )
+        # self.components.transformer.to(self.state.device, dtype=self.state.weight_dtype)
 
-        ##########  Clean up  ##########
-        if self.state.using_deepspeed:
-            del pipe
-            # Unload models except those needed for training
-            self.move_components_to_device(
-                dtype=self.state.weight_dtype, device="cpu", ignore_list=["transformer"]
-            )
-        else:
-            pipe.remove_all_hooks()
-            del pipe
-            # Load models except those not needed for training
-            self.move_components_to_device(
-                dtype=self.state.weight_dtype,
-                device=self.accelerator.device,
-                ignore_list=self.UNLOAD_LIST,
-            )
-            self.components.transformer.to(self.accelerator.device, dtype=self.state.weight_dtype)
-
-            # Change trainable weights back to fp32 to keep with dtype after prepare the model
-            # cast_training_params([self.components.transformer], dtype=torch.float32)
+        # Change trainable weights back to fp32 to keep with dtype after prepare the model
+        # cast_training_params([self.components.transformer], dtype=torch.float32)
 
         free_memory()
-        self.accelerator.wait_for_everyone()
-        ################################
+        dist.barrier()
+        # =======================================
 
         memory_statistics = get_memory_statistics(self.logger)
         self.logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
-        torch.cuda.reset_peak_memory_stats(self.accelerator.device)
+        torch.cuda.reset_peak_memory_stats(self.state.device)
 
         torch.set_grad_enabled(True)
         self.components.transformer.train()
@@ -309,7 +312,7 @@ class DiffusionTrainer(BaseTrainer):
         raise NotImplementedError
 
     @override
-    def compute_loss(self, batch) -> torch.Tensor:
+    def compute_loss(self, batch: dict[str, Any]) -> torch.Tensor:
         raise NotImplementedError
 
     def collate_fn(self, samples: list[dict[str, Any]]):

@@ -13,7 +13,6 @@ from cogkit.finetune.diffusion.schemas import DiffusionComponents
 from cogkit.finetune.diffusion.trainer import DiffusionTrainer
 from cogkit.finetune.utils import (
     process_prompt_attention_mask,
-    unwrap_model,
     replace_attn_processor,
 )
 from cogkit.utils import load_lora_checkpoint, unload_lora_checkpoint
@@ -43,7 +42,7 @@ class Cogview4Trainer(DiffusionTrainer):
         dtype = self.state.weight_dtype
 
         components = DiffusionComponents()
-        model_path = str(self.args.model_path)
+        model_path = str(self.uargs.model_path)
 
         ### pipeline
         components.pipeline_cls = CogView4Pipeline
@@ -59,7 +58,7 @@ class Cogview4Trainer(DiffusionTrainer):
         )
 
         ### transformer
-        if not self.args.low_vram:
+        if not self.uargs.low_vram:
             components.transformer = CogView4Transformer2DModel.from_pretrained(
                 model_path,
                 subfolder="transformer",
@@ -71,7 +70,7 @@ class Cogview4Trainer(DiffusionTrainer):
                 subfolder="transformer",
                 torch_dtype=dtype,
                 quantization_config=nf4_config,
-                device=self.accelerator.device,
+                device=self.state.device,
             )
         replace_attn_processor(components.transformer, CogView4TrainingAttnProcessor())
 
@@ -88,23 +87,22 @@ class Cogview4Trainer(DiffusionTrainer):
 
     @override
     def initialize_pipeline(self, ckpt_path: str | None = None) -> CogView4Pipeline:
-        if not self.args.low_vram:
+        # using bf16 model rather than quantized ones
+        if not self.uargs.low_vram:
             pipe = CogView4Pipeline(
                 tokenizer=self.components.tokenizer,
                 text_encoder=self.components.text_encoder,
                 vae=self.components.vae,
-                transformer=unwrap_model(self.accelerator, self.components.transformer),
+                transformer=self.unwrap_model(self.components.transformer),
                 scheduler=self.components.scheduler,
             )
         else:
-            assert self.args.training_type == "lora"
-            # using bf16 model rather than quantized ones
+            assert self.uargs.training_type == "lora"
             transformer = CogView4Transformer2DModel.from_pretrained(
-                str(self.args.model_path),
+                str(self.uargs.model_path),
                 subfolder="transformer",
                 torch_dtype=self.state.weight_dtype,
             )
-            replace_attn_processor(transformer, CogView4TrainingAttnProcessor())
             pipe = CogView4Pipeline(
                 tokenizer=self.components.tokenizer,
                 text_encoder=self.components.text_encoder,
@@ -133,7 +131,7 @@ class Cogview4Trainer(DiffusionTrainer):
         ).input_ids
 
         prompt_embedding = self.components.text_encoder(
-            prompt_token_ids.to(self.accelerator.device), output_hidden_states=True
+            prompt_token_ids.to(self.state.device), output_hidden_states=True
         ).hidden_states[-2][0]
         # shape of prompt_embedding: [sequence length, embedding dimension(4096)]
         return prompt_embedding
@@ -145,7 +143,7 @@ class Cogview4Trainer(DiffusionTrainer):
     @override
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         vae = self.components.vae
-        image = image.to(self.accelerator.device, dtype=vae.dtype)
+        image = image.to(self.state.device, dtype=vae.dtype)
         latent_dist = vae.encode(image).latent_dist
         latent = latent_dist.sample() * vae.config.scaling_factor
         return latent
@@ -225,8 +223,9 @@ class Cogview4Trainer(DiffusionTrainer):
     @override
     def compute_loss(self, batch: dict[str, Any]) -> torch.Tensor:
         batch_size, text_seqlen, text_embedding_dim = batch["prompt_embedding"].shape
-        prompt_embeds = batch["prompt_embedding"]
-        latent = batch["encoded_image"]
+        device = self.state.device
+        prompt_embeds = batch["prompt_embedding"].to(device)
+        latent = batch["encoded_image"].to(device)
 
         batch_size, num_channels, height, width = latent.shape
         image_height, image_width = self.state.train_resolution
@@ -234,7 +233,7 @@ class Cogview4Trainer(DiffusionTrainer):
         image_seq_len = (
             (image_height // vae_scale_factor) * (image_width // vae_scale_factor)
         ) // (self.state.transformer_config.patch_size**2)
-        image_seq_len = torch.tensor([image_seq_len], device=self.accelerator.device)
+        image_seq_len = torch.tensor([image_seq_len], device=device)
 
         text_attn_mask = batch["text_attn_mask"]
 
@@ -248,20 +247,20 @@ class Cogview4Trainer(DiffusionTrainer):
         original_size = torch.tensor(
             [[image_height, image_width] for _ in range(batch_size)],
             dtype=latent.dtype,
-            device=self.accelerator.device,
+            device=device,
         )
         target_size = torch.tensor(
             [[image_height, image_width] for _ in range(batch_size)],
             dtype=latent.dtype,
-            device=self.accelerator.device,
+            device=device,
         )
         crop_coords = torch.tensor(
-            [[0, 0] for _ in range(batch_size)], dtype=latent.dtype, device=self.accelerator.device
+            [[0, 0] for _ in range(batch_size)], dtype=latent.dtype, device=device
         )
 
         noise_pred_cond = self.components.transformer(
-            hidden_states=model_input,
-            encoder_hidden_states=prompt_embeds,
+            hidden_states=model_input.to(dtype=self.state.weight_dtype),
+            encoder_hidden_states=prompt_embeds.to(dtype=self.state.weight_dtype),
             timestep=timestep,
             original_size=original_size,
             target_size=target_size,
@@ -288,11 +287,11 @@ class Cogview4Trainer(DiffusionTrainer):
             scheduler.sigma_min,
             scheduler.sigma_max,
             scheduler.config.num_train_timesteps,
-            device=self.accelerator.device,
+            device=self.state.device,
         )
         m = (vtoken_seq_len / scheduler.config.base_image_seq_len) ** 0.5
         mu = m * scheduler.config.max_shift + scheduler.config.base_shift
-        mu = mu.unsqueeze(1)
+        mu = mu.unsqueeze(1).to(sigmas.device)
         sigmas = mu / (mu + (1 / sigmas - 1))
         sigmas = torch.cat([torch.zeros((batch_size, 1), device=sigmas.device), sigmas], dim=1)
         return sigmas
@@ -302,7 +301,7 @@ class Cogview4Trainer(DiffusionTrainer):
             0,
             num_train_timesteps,
             (batch_size,),
-            device=self.accelerator.device,
+            device=self.state.device,
         )
 
     def add_noise(
@@ -335,7 +334,7 @@ class Cogview4Trainer(DiffusionTrainer):
         image_generate = pipe(
             height=self.state.train_resolution[0],
             width=self.state.train_resolution[1],
-            prompt_embeds=prompt_embedding,
+            prompt_embeds=prompt_embedding.to(self.state.device),
             negative_prompt_embeds=self.state.negative_prompt_embeds.unsqueeze(
                 0
             ),  # Add batch dimension

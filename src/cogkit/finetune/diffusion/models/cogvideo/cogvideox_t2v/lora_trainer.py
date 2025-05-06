@@ -4,6 +4,14 @@
 from typing import Any
 
 import torch
+from PIL import Image
+from transformers import AutoTokenizer, BitsAndBytesConfig, T5EncoderModel
+from typing_extensions import override
+
+from cogkit.finetune import register
+from cogkit.finetune.diffusion.schemas import DiffusionComponents
+from cogkit.finetune.diffusion.trainer import DiffusionTrainer
+from cogkit.utils import load_lora_checkpoint, unload_lora_checkpoint
 from diffusers import (
     AutoencoderKLCogVideoX,
     CogVideoXDPMScheduler,
@@ -11,15 +19,6 @@ from diffusers import (
     CogVideoXTransformer3DModel,
 )
 from diffusers.models.embeddings import get_3d_rotary_pos_embed
-from PIL import Image
-from transformers import AutoTokenizer, T5EncoderModel, BitsAndBytesConfig
-from typing_extensions import override
-
-from cogkit.finetune import register
-from cogkit.finetune.diffusion.schemas import DiffusionComponents
-from cogkit.finetune.diffusion.trainer import DiffusionTrainer
-from cogkit.finetune.utils import unwrap_model
-from cogkit.utils import load_lora_checkpoint, unload_lora_checkpoint
 
 
 class CogVideoXT2VLoraTrainer(DiffusionTrainer):
@@ -37,7 +36,7 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
         dtype = self.state.weight_dtype
 
         components = DiffusionComponents()
-        model_path = str(self.args.model_path)
+        model_path = str(self.uargs.model_path)
 
         ### pipeline
         components.pipeline_cls = CogVideoXPipeline
@@ -51,7 +50,7 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
         )
 
         ### transformer
-        if not self.args.low_vram:
+        if not self.uargs.low_vram:
             components.transformer = CogVideoXTransformer3DModel.from_pretrained(
                 model_path,
                 subfolder="transformer",
@@ -62,7 +61,7 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
                 model_path,
                 subfolder="transformer",
                 quantization_config=nf4_config,
-                device=self.accelerator.device,
+                device=self.state.device,
                 torch_dtype=dtype,
             )
 
@@ -80,18 +79,18 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
 
     @override
     def initialize_pipeline(self, ckpt_path: str | None = None) -> CogVideoXPipeline:
-        if not self.args.low_vram:
+        if not self.uargs.low_vram:
             pipe = CogVideoXPipeline(
                 tokenizer=self.components.tokenizer,
                 text_encoder=self.components.text_encoder,
                 vae=self.components.vae,
-                transformer=unwrap_model(self.accelerator, self.components.transformer),
+                transformer=self.unwrap_model(self.components.transformer),
                 scheduler=self.components.scheduler,
             )
         else:
-            assert self.args.training_type == "lora"
+            assert self.uargs.training_type == "lora"
             transformer = CogVideoXTransformer3DModel.from_pretrained(
-                str(self.args.model_path),
+                str(self.uargs.model_path),
                 subfolder="transformer",
                 torch_dtype=self.state.weight_dtype,
             )
@@ -127,7 +126,7 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
         )
         prompt_token_ids = prompt_token_ids.input_ids
         prompt_embedding = self.components.text_encoder(
-            prompt_token_ids.to(self.accelerator.device)
+            prompt_token_ids.to(self.state.device)
         ).last_hidden_state[0]
 
         # shape of prompt_embedding: [seq_len, hidden_size]
@@ -161,8 +160,9 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
 
     @override
     def compute_loss(self, batch) -> torch.Tensor:
-        prompt_embedding = batch["prompt_embedding"]
-        latent = batch["encoded_videos"]
+        device = self.state.device
+        prompt_embedding = batch["prompt_embedding"].to(device)
+        latent = batch["encoded_videos"].to(device)
 
         assert latent is not None and prompt_embedding is not None
 
@@ -188,7 +188,7 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
             0,
             self.components.scheduler.config.num_train_timesteps,
             (batch_size,),
-            device=self.accelerator.device,
+            device=device,
         )
         timesteps = timesteps.long()
 
@@ -207,7 +207,7 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
                 num_frames=num_frames,
                 transformer_config=transformer_config,
                 vae_scale_factor_spatial=vae_scale_factor_spatial,
-                device=self.accelerator.device,
+                device=device,
             )
             if transformer_config.use_rotary_positional_embeddings
             else None
@@ -251,8 +251,8 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
             num_frames=self.state.train_resolution[0],
             height=self.state.train_resolution[1],
             width=self.state.train_resolution[2],
-            prompt_embeds=prompt_embedding,
-            negative_prompt_embeds=self.get_negtive_prompt_embeds().unsqueeze(0),
+            prompt_embeds=prompt_embedding.to(self.state.device),
+            negative_prompt_embeds=self.state.negative_prompt_embeds.unsqueeze(0),
             generator=self.state.generator,
         ).frames[0]
         return {"text": prompt, "video": video_generate}
