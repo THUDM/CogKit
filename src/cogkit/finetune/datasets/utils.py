@@ -1,5 +1,4 @@
 import hashlib
-import logging
 import math
 from pathlib import Path
 from typing import Callable
@@ -11,6 +10,10 @@ from filelock import FileLock
 from PIL import Image
 from safetensors.torch import load_file, save_file
 from torchvision.io import VideoReader
+
+from cogkit.finetune.logger import get_logger
+
+_logger = get_logger()
 
 ##########  loaders  ##########
 
@@ -55,7 +58,7 @@ def load_images_from_videos(videos_path: list[Path]) -> list[Path]:
 
         # Save frame as PNG with same name as video
         cv2.imwrite(str(frame_path), frame)
-        logging.info(f"Saved first frame to {frame_path}")
+        _logger.info(f"Saved first frame to {frame_path}")
 
         # Release video capture
         cap.release()
@@ -176,16 +179,13 @@ def preprocess_video_with_resize(
 ##########  embedding & caching  ##########
 
 
-def get_prompt_embedding(
-    encode_fn: Callable, prompt: str, cache_dir: Path, logger: logging.Logger
-) -> torch.Tensor:
+def get_prompt_embedding(encode_fn: Callable, prompt: str, cache_dir: Path) -> torch.Tensor:
     """Get prompt embedding from cache or create new one if not exists.
 
     Args:
         encode_fn: Function to project prompt to embedding.
         prompt: Text prompt to be embedded
         cache_dir: Base directory for caching embeddings
-        logger: Logger instance for logging messages
 
     Returns:
         torch.Tensor: Prompt embedding with shape [seq_len, hidden_size]
@@ -200,9 +200,9 @@ def get_prompt_embedding(
     with lock:
         if prompt_embedding_path.exists():
             prompt_embedding = load_file(prompt_embedding_path)["prompt_embedding"]
-            logger.debug(
+            _logger.debug(
                 f"Loaded prompt embedding from {prompt_embedding_path}",
-                main_process_only=False,
+                main_only=False,
             )
         else:
             prompt_embedding = encode_fn(prompt)
@@ -211,22 +211,20 @@ def get_prompt_embedding(
 
             prompt_embedding = prompt_embedding.to("cpu")
             save_file({"prompt_embedding": prompt_embedding}, prompt_embedding_path)
-            logger.info(
+            _logger.info(
                 f"Saved prompt embedding to {prompt_embedding_path}",
-                main_process_only=False,
+                main_only=False,
             )
 
     return prompt_embedding
 
 
-def get_image_embedding(
-    encode_fn: Callable, image: Image.Image, cache_dir: Path, logger: logging.Logger
-) -> torch.Tensor:
+def get_image_embedding(encode_fn: Callable, image: Image.Image, cache_dir: Path) -> torch.Tensor:
     encoded_images_dir = cache_dir / "encoded_images"
     encoded_images_dir.mkdir(parents=True, exist_ok=True)
 
     if not hasattr(image, "filename"):
-        logger.warning("Image object does not have filename attribute, skipping caching.")
+        _logger.warning("Image object does not have filename attribute, skipping caching.")
         return encode_fn(image.convert("RGB")).to("cpu")
 
     filename = Path(image.filename).stem
@@ -235,18 +233,12 @@ def get_image_embedding(
 
     if encoded_image_path.exists():
         encoded_image = load_file(encoded_image_path)["encoded_image"]
-        logger.debug(
-            f"Loaded encoded image from {encoded_image_path}",
-            main_process_only=False,
-        )
+        _logger.debug(f"Loaded encoded image from {encoded_image_path}")
     else:
         encoded_image = encode_fn(image.convert("RGB"))
         encoded_image = encoded_image.to("cpu")
         save_file({"encoded_image": encoded_image}, encoded_image_path)
-        logger.info(
-            f"Saved encoded image to {encoded_image_path}",
-            main_process_only=False,
-        )
+        _logger.info(f"Saved encoded image to {encoded_image_path}")
 
     return encoded_image
 

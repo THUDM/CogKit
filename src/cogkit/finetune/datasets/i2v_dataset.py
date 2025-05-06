@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
 
 import torch
-from accelerate.logging import get_logger
 from datasets import load_dataset
 from PIL import Image
 from safetensors.torch import load_file, save_file
@@ -14,7 +13,7 @@ from torchvision import transforms
 from torchvision.io import VideoReader
 from typing_extensions import override
 
-from cogkit.finetune.diffusion.constants import LOG_LEVEL, LOG_NAME
+from cogkit.finetune.logger import get_logger
 
 from .utils import (
     get_prompt_embedding,
@@ -25,7 +24,7 @@ from .utils import (
 if TYPE_CHECKING:
     from cogkit.finetune.diffusion.trainer import DiffusionTrainer
 
-logger = get_logger(LOG_NAME, LOG_LEVEL)
+_logger = get_logger()
 
 
 class BaseI2VDataset(Dataset):
@@ -84,7 +83,7 @@ class BaseI2VDataset(Dataset):
                 self.data = video_data.map(update_with_image, with_indices=True)
 
             else:
-                logger.warning(
+                _logger.warning(
                     f"No image data found in {self.data_root}, using first frame of video instead"
                 )
 
@@ -116,7 +115,7 @@ class BaseI2VDataset(Dataset):
 
         ##### prompt
         prompt = self.data[index]["prompt"]
-        prompt_embedding = get_prompt_embedding(self.encode_text, prompt, cache_dir, logger)
+        prompt_embedding = get_prompt_embedding(self.encode_text, prompt, cache_dir)
 
         ##### image
         image_preprocessed = self.data[index]["image"]
@@ -137,10 +136,10 @@ class BaseI2VDataset(Dataset):
         ##### video
         video = self.data[index]["video"]
         video_path = Path(video._hf_encoded["path"])
-        train_resolution_str = "x".join(str(x) for x in self.trainer.args.train_resolution)
+        train_resolution_str = "x".join(str(x) for x in self.trainer.uargs.train_resolution)
 
         video_latent_dir = (
-            cache_dir / "video_latent" / self.trainer.args.model_name / train_resolution_str
+            cache_dir / "video_latent" / self.trainer.uargs.model_name / train_resolution_str
         )
         video_latent_dir.mkdir(parents=True, exist_ok=True)
 
@@ -148,7 +147,7 @@ class BaseI2VDataset(Dataset):
 
         if encoded_video_path.exists():
             encoded_video = load_file(encoded_video_path)["encoded_video"]
-            logger.debug(f"Loaded encoded video from {encoded_video_path}", main_process_only=False)
+            _logger.debug(f"Loaded encoded video from {encoded_video_path}")
         else:
             frames, _ = self.preprocess(video, None, self.device)
             # Current shape of frames: [F, C, H, W]
@@ -162,10 +161,7 @@ class BaseI2VDataset(Dataset):
             encoded_video = encoded_video[0]
             encoded_video = encoded_video.to("cpu")
             save_file({"encoded_video": encoded_video}, encoded_video_path)
-            logger.info(
-                f"Saved encoded video to {encoded_video_path}",
-                main_process_only=False,
-            )
+            _logger.info(f"Saved encoded video to {encoded_video_path}")
 
         # shape of encoded_video: [C, F, H, W]
         # shape of image: [C, H, W]

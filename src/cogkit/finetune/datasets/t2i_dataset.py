@@ -4,26 +4,25 @@ from typing import TYPE_CHECKING, Any, Tuple
 
 import torch
 import torchvision.transforms as transforms
-from accelerate.logging import get_logger
 from datasets import load_dataset
 from PIL import Image
 from torch.utils.data import Dataset
 from typing_extensions import override
 
-from cogkit.finetune.diffusion.constants import LOG_LEVEL, LOG_NAME
+from cogkit.finetune.logger import get_logger
 
 from .utils import (
+    calculate_resize_dimensions,
     get_image_embedding,
     get_prompt_embedding,
     pil2tensor,
     preprocess_image_with_resize,
-    calculate_resize_dimensions,
 )
 
 if TYPE_CHECKING:
     from cogkit.finetune.diffusion.trainer import DiffusionTrainer
 
-logger = get_logger(LOG_NAME, LOG_LEVEL)
+_logger = get_logger()
 
 
 class BaseT2IDataset(Dataset):
@@ -80,7 +79,7 @@ class BaseT2IDataset(Dataset):
 
         ##### prompt
         prompt = self.data[index]["prompt"]
-        prompt_embedding = get_prompt_embedding(self.encode_text, prompt, cache_dir, logger)
+        prompt_embedding = get_prompt_embedding(self.encode_text, prompt, cache_dir)
 
         if not self.using_train:
             return {
@@ -100,7 +99,7 @@ class BaseT2IDataset(Dataset):
             return encoded_image
 
         # shape of encoded_image: [C, H, W]
-        encoded_image = get_image_embedding(encode_fn, image, cache_dir, logger)
+        encoded_image = get_image_embedding(encode_fn, image, cache_dir)
 
         # shape of image: [C, H, W]
         return {

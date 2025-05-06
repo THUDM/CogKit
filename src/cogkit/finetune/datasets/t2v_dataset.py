@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import torch
-from accelerate.logging import get_logger
 from datasets import load_dataset
 from safetensors.torch import load_file, save_file
 from torch.utils.data import Dataset
@@ -10,14 +9,14 @@ from torchvision import transforms
 from torchvision.io import VideoReader
 from typing_extensions import override
 
-from cogkit.finetune.diffusion.constants import LOG_LEVEL, LOG_NAME
+from cogkit.finetune.logger import get_logger
 
 from .utils import get_prompt_embedding, preprocess_video_with_resize
 
 if TYPE_CHECKING:
     from cogkit.finetune.diffusion.trainer import DiffusionTrainer
 
-logger = get_logger(LOG_NAME, LOG_LEVEL)
+_logger = get_logger()
 
 
 class BaseT2VDataset(Dataset):
@@ -66,7 +65,7 @@ class BaseT2VDataset(Dataset):
 
         ##### prompt
         prompt = self.data[index]["prompt"]
-        prompt_embedding = get_prompt_embedding(self.encode_text, prompt, cache_dir, logger)
+        prompt_embedding = get_prompt_embedding(self.encode_text, prompt, cache_dir)
 
         if not self.using_train:
             return {
@@ -78,20 +77,17 @@ class BaseT2VDataset(Dataset):
         video = self.data[index]["video"]
         video_path = Path(video._hf_encoded["path"])
 
-        train_resolution_str = "x".join(str(x) for x in self.trainer.args.train_resolution)
+        train_resolution_str = "x".join(str(x) for x in self.trainer.uargs.train_resolution)
 
         video_latent_dir = (
-            cache_dir / "video_latent" / self.trainer.args.model_name / train_resolution_str
+            cache_dir / "video_latent" / self.trainer.uargs.model_name / train_resolution_str
         )
         video_latent_dir.mkdir(parents=True, exist_ok=True)
         encoded_video_path = video_latent_dir / (video_path.stem + ".safetensors")
 
         if encoded_video_path.exists():
             encoded_video = load_file(encoded_video_path)["encoded_video"]
-            logger.debug(
-                f"Loaded encoded video from {encoded_video_path}",
-                main_process_only=False,
-            )
+            _logger.debug(f"Loaded encoded video from {encoded_video_path}")
         else:
             frames = self.preprocess(video, self.device)
             # Current shape of frames: [F, C, H, W]
@@ -105,10 +101,7 @@ class BaseT2VDataset(Dataset):
             encoded_video = encoded_video[0]
             encoded_video = encoded_video.to("cpu")
             save_file({"encoded_video": encoded_video}, encoded_video_path)
-            logger.info(
-                f"Saved encoded video to {encoded_video_path}",
-                main_process_only=False,
-            )
+            _logger.info(f"Saved encoded video to {encoded_video_path}")
 
         return {
             "prompt": prompt,
