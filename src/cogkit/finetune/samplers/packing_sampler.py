@@ -6,9 +6,13 @@ These samplers aim to minimize computational waste by grouping variable-length s
 fixed-size batches while preserving sampling randomness.
 """
 
-from torch.utils.data import Sampler
-from typing import List, Iterator
 import random
+from typing import Iterator, List
+from typing_extensions import override
+
+from torch.utils.data import Sampler
+from cogkit.finetune.utils import get_world_size, get_global_rank
+import torch.distributed as dist
 
 
 class NaivePackingSampler(Sampler):
@@ -67,3 +71,34 @@ class NaivePackingSampler(Sampler):
 
     def __len__(self):
         return len(self.idx_buckets)
+
+
+class DistPackingSampler(NaivePackingSampler):
+    @override
+    def __init__(
+        self,
+        length_list: list[int],
+        packed_length: int,
+        shuffle: bool = True,
+        world_size: int | None = None,
+        global_rank: int | None = None,
+    ):
+        super().__init__(length_list, packed_length, shuffle)
+        if not dist.is_initialized():
+            raise ValueError("DistPackingSampler requires distributed training")
+
+        self.world_size = world_size or get_world_size()
+        self.global_rank = global_rank or get_global_rank()
+
+    @override
+    def __iter__(self) -> Iterator[List[int]]:
+        size = len(self.idx_buckets) // self.world_size
+        offset = self.global_rank * size
+        yield from self.idx_buckets[offset : offset + size]
+
+        if self.shuffle:
+            random.shuffle(self.idx_buckets)
+
+    @override
+    def __len__(self):
+        return len(self.idx_buckets) // self.world_size

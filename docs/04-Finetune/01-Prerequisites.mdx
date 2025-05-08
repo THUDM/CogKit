@@ -3,7 +3,7 @@
 
 # Prerequisites
 
-Before starting fine-tuning, please ensure your machine meets the minimum hardware requirements listed in the tables below. The tables show the minimum VRAM (GPU memory) requirements for different models under various configurations.
+Before starting fine-tuning, please ensure your machine meets the minimum hardware requirements listed in the tables below. The tables show the minimum VRAM requirements for different models under various configurations (test on 8xA100).
 
 ## CogVideo Series
 
@@ -11,101 +11,61 @@ Before starting fine-tuning, please ensure your machine meets the minimum hardwa
   <thead>
     <tr>
       <th style={{ textAlign: "center" }}>Model</th>
-      <th style={{ textAlign: "center" }}>Training Type</th>
-      <th style={{ textAlign: "center" }}>Distribution Strategy</th>
-      <th style={{ textAlign: "center" }}>Training Resolution (FxHxW)</th>
+      <th style={{ textAlign: "center" }}>Type</th>
+      <th style={{ textAlign: "center" }}>Strategy</th>
+      <th style={{ textAlign: "center" }}>Resolution <br /> (FxHxW)</th>
       <th style={{ textAlign: "center" }}>Requirement</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td rowspan="6">cogvideox-t2v-2b</td>
+      <td rowSpan="2">cogvideox-t2v-2b</td>
       <td>lora</td>
       <td>DDP</td>
       <td>49x480x720</td>
-      <td>16GB VRAM</td>
+      <td>1 GPU with <br /> 12GB VRAM</td>
     </tr>
     <tr>
-      <td rowspan="5">sft</td>
+      <td rowSpan="1">sft</td>
       <td>DDP</td>
       <td>49x480x720</td>
-      <td>36GB VRAM</td>
+      <td>1 GPU with <br /> 25GB VRAM</td>
     </tr>
     <tr>
-      <td>1-GPU zero-2 + opt offload</td>
-      <td>49x480x720</td>
-      <td>17GB VRAM</td>
-    </tr>
-    <tr>
-      <td>8-GPU zero-2</td>
-      <td>49x480x720</td>
-      <td>17GB VRAM</td>
-    </tr>
-    <tr>
-      <td>8-GPU zero-3</td>
-      <td>49x480x720</td>
-      <td>19GB VRAM</td>
-    </tr>
-    <tr>
-      <td>8-GPU zero-3 + opt and param offload</td>
-      <td>49x480x720</td>
-      <td>14GB VRAM</td>
-    </tr>
-    <tr>
-      <td rowspan="5">cogvideox-\{t2v,i2v\}-5b</td>
+      <td rowSpan="3">cogvideox-\{t2v,i2v\}-5b</td>
       <td>lora</td>
       <td>DDP</td>
       <td>49x480x720</td>
-      <td>24GB VRAM</td>
+      <td>1 GPU with <br /> 24GB VRAM</td>
     </tr>
     <tr>
-      <td rowspan="4">sft</td>
-      <td>1-GPU zero-2 + opt offload</td>
+      <td rowSpan="2">sft</td>
+      <td>FSDP fullshard</td>
       <td>49x480x720</td>
-      <td>42GB VRAM</td>
+      <td>8 GPU with <br /> 20GB VRAM</td>
     </tr>
     <tr>
-      <td>8-GPU zero-2</td>
+      <td>FSDP fullshard + offload</td>
       <td>49x480x720</td>
-      <td>42GB VRAM</td>
+      <td>1 GPU with <br /> 16GB VRAM</td>
     </tr>
     <tr>
-      <td>8-GPU zero-3</td>
-      <td>49x480x720</td>
-      <td>43GB VRAM</td>
-    </tr>
-    <tr>
-      <td>8-GPU zero-3 + opt and param offload</td>
-      <td>49x480x720</td>
-      <td>28GB VRAM</td>
-    </tr>
-    <tr>
-      <td rowspan="5">cogvideox1.5-\{t2v,i2v\}-5b</td>
+      <td rowSpan="3">cogvideox1.5-\{t2v,i2v\}-5b</td>
       <td>lora</td>
       <td>DDP</td>
       <td>81x768x1360</td>
-      <td>35GB VRAM</td>
+      <td>1 GPU with <br /> 32GB VRAM</td>
     </tr>
     <tr>
-      <td rowspan="4">sft</td>
-      <td>1-GPU zero-2 + opt offload</td>
+      <td rowSpan="2">sft</td>
+      <td>FSDP fullshard</td>
       <td>81x768x1360</td>
-      <td>56GB VRAM</td>
+      <td>8 GPUs with <br /> 31GB VRAM</td>
     </tr>
     <tr>
-      <td>8-GPU zero-2</td>
+      <td>FSDP fullshard + offload</td>
       <td>81x768x1360</td>
-      <td>55GB VRAM</td>
-    </tr>
-    <tr>
-      <td>8-GPU zero-3</td>
-      <td>81x768x1360</td>
-      <td>55GB VRAM</td>
-    </tr>
-    <tr>
-      <td>8-GPU zero-3 + opt and param offload</td>
-      <td>81x768x1360</td>
-      <td>40GB VRAM</td>
+      <td>8 GPUs with <br /> 27GB VRAM</td>
     </tr>
   </tbody>
 </table>
@@ -116,46 +76,36 @@ Before starting fine-tuning, please ensure your machine meets the minimum hardwa
   <thead>
     <tr>
       <th style={{ textAlign: "center" }}>Model</th>
-      <th style={{ textAlign: "center" }}>Training Type</th>
-      <th style={{ textAlign: "center" }}>Distribution Strategy</th>
-      <th style={{ textAlign: "center" }}>Training Resolution (HxW)</th>
+      <th style={{ textAlign: "center" }}>Type</th>
+      <th style={{ textAlign: "center" }}>Strategy</th>
+      <th style={{ textAlign: "center" }}>Resolution <br /> (HxW)</th>
       <th style={{ textAlign: "center" }}>Requirement</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td rowspan="6">CogView4-6B</td>
-      <td>qlora + param offload <br />(`--low_vram`)</td>
+      <td rowSpan="4">CogView4-6B</td>
+      <td>qlora + offload <br />(enable --low_vram)</td>
       <td>DDP</td>
       <td>1024x1024</td>
-      <td>9GB VRAM</td>
+      <td>1 GPU with <br /> 9GB VRAM</td>
     </tr>
     <tr>
       <td>lora</td>
       <td>DDP</td>
       <td>1024x1024</td>
-      <td>30GB VRAM</td>
+      <td>1 GPU with <br /> 20GB VRAM</td>
     </tr>
     <tr>
-      <td rowspan="4">sft</td>
-      <td>1-GPU zero-2 + opt offload</td>
+      <td rowSpan="2">sft</td>
+      <td>FSDP fullshard</td>
       <td>1024x1024</td>
-      <td>42GB VRAM</td>
+      <td>8 GPUs with <br /> 28GB VRAM</td>
     </tr>
     <tr>
-      <td>8-GPU zero-2</td>
+      <td>FSDP fullshard + offload</td>
       <td>1024x1024</td>
-      <td>50GB VRAM</td>
-    </tr>
-    <tr>
-      <td>8-GPU zero-3</td>
-      <td>1024x1024</td>
-      <td>47GB VRAM</td>
-    </tr>
-    <tr>
-      <td>8-GPU zero-3 + opt and param offload</td>
-      <td>1024x1024</td>
-      <td>28GB VRAM</td>
+      <td>8 GPUs with <br /> 22GB VRAM</td>
     </tr>
   </tbody>
 </table>

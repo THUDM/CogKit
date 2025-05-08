@@ -1,0 +1,64 @@
+# ================ Logging ================
+name4train: "t2v-train"
+log_level: "INFO"  # Options: ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+# ================ Model ================
+model_name: "cogvideox1.5-t2v"  # Options: ["cogvideox-t2v", "cogvideox1.5-t2v"]
+model_path: "THUDM/CogVideoX1.5-5B"
+
+# ================ Output ================
+output_dir: "/path/to/output"
+
+
+# ================ Tracker ================
+report_to: null  # Options: ["wandb"]
+
+
+# ================ Data ================
+data_root: "/path/to/t2v/data"
+
+
+# ================ Training ================
+seed: 42
+training_type: "lora"   # Options: ["lora", "sft"]
+
+strategy: "DDP"  # Options: ["DDP", "SHARD_GRAD_OP", "FULL_SHARD", "HYBRID_SHARD", "_HYBRID_SHARD_ZERO2"]
+
+# This will offload model param and grads to CPU memory to save GPU memory, but will slow down training
+offload_params_grads: false
+
+# This will increase memory usage since gradients are sharded during accumulation step.
+# Note: When used with offload_params_grads, model parameters and gradients will only be offloaded
+#   to the CPU during the final synchronization (still retained on GPU in gradient accumulation steps)
+#   which means offload_params_grads is meaningless when used with no_grad_sync_when_accumulating
+no_grad_sync_when_accumulating: false
+
+# When enable_packing is true, training will use the native image resolution,
+#   otherwise all images will be resized to train_resolution, which may distort the original aspect ratio.
+# IMPORTANT: When changing enable_packing from true to false (or false to true),
+#   make sure to clear the `.cache` directories in your `data_root/train` and `data_root/test` folders if they exist.
+enable_packing: false
+
+# Note:
+#   for CogVideoX series models, number of training frames should be **8N+1**
+#   for CogVideoX1.5 series models, number of training frames should be **16N+1**
+train_resolution: [81, 768, 1360]  # [Frames, Height, Width]
+
+train_epochs: 1
+batch_size: 1
+gradient_accumulation_steps: 1
+mixed_precision: "bf16"  # Options: ["fp32", "fp16", "bf16"]
+learning_rate: 2.0e-5
+
+num_workers: 8
+pin_memory: true
+
+checkpointing_steps: 10
+checkpointing_limit: 2
+resume_from_checkpoint: null  # or "/path/to/checkpoint/dir"
+
+
+# ================ Validation ================
+do_validation: true
+validation_steps: 10  # Must be a multiple of `checkpointing_steps`
+gen_fps: 16
