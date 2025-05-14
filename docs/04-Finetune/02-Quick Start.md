@@ -27,15 +27,16 @@ We recommend that you read the corresponding [model card](../05-Model%20Card.mdx
 :::
 
 1. Navigate to the `CogKit/` directory after cloning the repository
+
    ```bash
    cd CogKit/
    ```
 
-2. Choose the appropriate sub directory from the `quickstart/scripts` based on your task type and distribution strategy. For example, `t2i` corresponds to text-to-image task
+2. Choose the appropriate subdirectory from the `quickstart/scripts` based on your task type and distribution strategy. For example, `t2i` corresponds to text-to-image task
 
 3. Review and adjust the parameters in `config.yaml` in the selected training directory
 
-4. Run the script in selected directory:
+4. Run the script in the selected directory:
 
    ```bash
    bash start_train.sh
@@ -45,7 +46,9 @@ We recommend that you read the corresponding [model card](../05-Model%20Card.mdx
 
 ### Merge Checkpoint
 
-After fine-tuning, you need to use the `merge.py` script provided in the `quickstart/tools/converters` directory to merge the distributed checkpoint weights into a single checkpoint (**except for QLoRA fine-tuning**). For example:
+After fine-tuning, you need to use the `merge.py` script to merge the distributed checkpoint weights into a single checkpoint (**except for QLoRA fine-tuning**).
+The script can be found in the `quickstart/tools/converters` directory.
+For example:
 
 ```bash
 cd quickstart/tools/converters

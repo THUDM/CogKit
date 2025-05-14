@@ -1,12 +1,15 @@
-#! /usr/bin/env python
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 
 import argparse
+from pathlib import Path
 
 import torch
-from torch.distributed.checkpoint.format_utils import dcp_to_torch_save
-from pathlib import Path
-from cogkit.utils.lora import _LORA_WEIGHT_NAME
 from safetensors.torch import save_file
+from torch.distributed.checkpoint.format_utils import dcp_to_torch_save
+
+from cogkit.utils.lora import _LORA_WEIGHT_NAME
 
 TORCH_SAVE_CHECKPOINT_DIR = "diffusion_pytorch_model.bin"
 
