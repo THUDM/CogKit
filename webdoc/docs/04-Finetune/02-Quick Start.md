@@ -27,36 +27,35 @@ We recommend that you read the corresponding [model card](../05-Model%20Card.mdx
 :::
 
 1. Navigate to the `CogKit/` directory after cloning the repository
+
    ```bash
    cd CogKit/
    ```
 
-2. Choose the appropriate training script from the `quickstart/scripts` directory based on your task type and distribution strategy. For example, `train_ddp_t2i.sh` corresponds to DDP strategy + text-to-image task
+2. Choose the appropriate subdirectory from the `quickstart/scripts` based on your task type and distribution strategy. For example, `t2i` corresponds to text-to-image task
 
-3. Review and adjust the parameters in the selected training script (e.g., `--data_root`, `--output_dir`, etc.)
+3. Review and adjust the parameters in `config.yaml` in the selected training directory
 
-4. [Optional] If you are using ZeRO strategy, refer to `quickstart/configs/accelerate_config.yaml` to confirm your ZeRO config file and number of GPUs.
-
-5. Run the script, for example:
+4. Run the script in the selected directory:
 
    ```bash
-   cd quickstart/scripts
-   bash train_ddp_t2i.sh
+   bash start_train.sh
    ```
 
 ## Load Fine-tuned Model
 
-### LoRA
+### Merge Checkpoint
 
-After fine-tuning with LoRA, you can load your trained weights during inference using the `--lora_model_id_or_path` option or parameter. For more details, please refer to the inference guide.
-
-### ZeRO
-
-After fine-tuning with ZeRO strategy, you need to use the `zero_to_fp32.py` script provided in the `quickstart/tools/converters` directory to convert the ZeRO checkpoint weights into Diffusers format. For example:
+After fine-tuning, you need to use the `merge.py` script to merge the distributed checkpoint weights into a single checkpoint (**except for QLoRA fine-tuning**).
+The script can be found in the `quickstart/tools/converters` directory.
+For example:
 
 ```bash
 cd quickstart/tools/converters
-python zero2diffusers.py checkpoint_dir/ output_dir/ --bfloat16
+python merge.py --checkpoint_dir ckpt/ --output_dir output_dir/
+# Add --lora option if you are using LoRA fine-tuning
 ```
 
-During inference, pass the `output_dir/` to the `--transformer_path` option or parameter. For more details, please refer to the inference guide.
+### Load Checkpoint
+
+You can pass the `output_dir` to the `--lora_model_id_or_path` option if you are using LoRA fine-tuning, or to the `--transformer_path` option if you are using FSDP fine-tuning. For more details, please refer to the inference guide.
