@@ -14,7 +14,7 @@ dependencies = [
   "diffusers @ git+https://github.com/huggingface/diffusers.git",
   "imageio-ffmpeg~=0.6.0",
   "imageio~=2.37",
-  "peft~=0.14.0",
+  "peft>=0.14.0",
   "pydantic~=2.10",
   "sentencepiece==0.2.0",
   "transformers~=4.49",
